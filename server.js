@@ -733,13 +733,31 @@ function startHttps(ips) {
     httpsServer.listen(HTTPS_PORT, HOST, () => {
       console.log('  ── Phone PWA install (no address bar) ──');
       for (const ip of ips) console.log(`  Secure:   https://${ip}:${HTTPS_PORT}`);
-      console.log(`  1) On the phone open  http://${ips[0] || 'localhost'}:${PORT}/rootCA.crt  and install the certificate`);
+      console.log(`  1) On the phone open  http://${ips[0] || 'localhost'}:${PORT}/rootCA.crt`);
+      console.log(`     (or https://${ips[0] || 'localhost'}:${HTTPS_PORT}/rootCA.crt) and install the certificate`);
       console.log('  2) Then open the https:// address above → browser menu → Install app\n');
     });
   } catch (e) {
     console.log(`  (HTTPS disabled: ${e.message})\n`);
   }
 }
+
+// HTTPS must come up even if the HTTP port is taken by another program on
+// this PC — the phone app runs entirely on :3443 (incl. the /rootCA.crt
+// download). Guard against double-starting.
+let _httpsStarted = false;
+function startHttpsOnce() {
+  if (_httpsStarted) return;
+  _httpsStarted = true;
+  const { lan, ts } = allAddresses();
+  startHttps([...lan, ...ts]); // cert covers LAN + Tailscale so HTTPS works on both
+}
+
+server.on('error', (e) => {
+  console.log(`\n  ⚠  HTTP port ${PORT} unavailable (${e.code || e.message}) — another program is using it.`);
+  console.log('     The phone app still works on the https:// address below.\n');
+  startHttpsOnce();
+});
 
 server.listen(PORT, HOST, () => {
   const { lan, ts } = allAddresses();
@@ -748,7 +766,7 @@ server.listen(PORT, HOST, () => {
   for (const ip of lan) console.log(`  Network:  http://${ip}:${PORT}   <- open this on your phone`);
   if (ts.length) for (const ip of ts) console.log(`  Tailscale:http://${ip}:${PORT}   <- remote (any network on your tailnet)`);
   console.log('');
-  startHttps([...lan, ...ts]); // cert covers LAN + Tailscale so HTTPS works on both
+  startHttpsOnce();
   if (!slicerReady()) {
     console.log('  ⚠  SLICER_PATH not found — arranging works, slicing is disabled.');
     console.log(`     Set it in .env (current: "${SLICER_PATH || 'unset'}")\n`);
