@@ -1,0 +1,61 @@
+{
+  "name": "elegoo-slicer-phone-app",
+  "version": "1.0.0",
+  "description": "Self-hosted PWA to arrange and slice 3D models from your phone using your Windows PC's Elegoo/Orca slicer backend.",
+  "private": true,
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "client:install": "npm --prefix client install",
+    "client:dev": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build",
+    "build": "npm run client:install && npm run client:build",
+    "setup": "npm install && npm run build",
+    "app": "electron .",
+    "app:build": "npm run client:build && electron .",
+    "pack": "npm run client:build && electron-builder --dir",
+    "dist": "npm run client:build && electron-builder --win",
+    "detect": "node desktop/detect.js"
+  },
+  "dependencies": {
+    "basic-ftp": "^6.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jszip": "^3.10.1",
+    "mqtt": "^5.15.1",
+    "multer": "^2.0.1",
+    "node-forge": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.7.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.chaotic3d.slicer",
+    "productName": "Chaotic 3D Slicer",
+    "asar": false,
+    "files": [
+      "server.js",
+      "lib/**/*",
+      "desktop/**/*",
+      "client/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Chaotic 3D Slicer"
+    }
+  }
+}

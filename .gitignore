@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Build output
+client/dist/
+dist/
+installer/output/
+installer/*.exe
+build/icon-[0-9]*.png
+
+# Runtime data (created by the app)
+uploads/
+output/
+.work/
+appstore.json
+
+# Secrets / local config — NEVER commit
+.env
+certs/
+
+# Local dev reference files (large)
+ref.3mf
+ref.gcode
+refpainted.gcode
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / tooling
+Thumbs.db
+.DS_Store
+.claude/
+
+# Packet captures
+*.pcapng
+*.etl
+*.pcap

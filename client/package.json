@@ -1,0 +1,18 @@
+{
+  "name": "elegoo-slicer-phone-app-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.5",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^8.0.16"
+  }
+}

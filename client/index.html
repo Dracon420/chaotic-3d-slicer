@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0d1117" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Chaotic 3D" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <title>Chaotic 3D Slicer</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- 3D viewport (only shown on the Slicer tab) -->
+      <canvas id="viewport"></canvas>
+
+      <!-- Top bar -->
+      <header id="topbar">
+        <span class="brand">🧊 Chaotic 3D Slicer</span>
+        <span id="status" class="status status--off">offline</span>
+      </header>
+
+      <!-- ═══ SLICER VIEW ═══ -->
+      <section id="view-slicer" class="view view--active">
+        <section id="panel" class="panel">
+          <div class="panel__handle" id="panelHandle"></div>
+
+          <div class="row">
+            <label class="file-btn">
+              <input id="fileInput" type="file" accept=".stl,.obj,.3mf" hidden />
+              <span>＋ Load model</span>
+            </label>
+            <span id="modelName" class="model-name">no model</span>
+          </div>
+
+          <div class="row">
+            <input id="saveName" class="save-name" type="text" placeholder="Save as… (file / job name)" />
+          </div>
+
+          <div class="control">
+            <div class="control__label"><span>X position</span>
+              <span class="num-wrap"><input id="posXOut" class="num-edit" type="number" min="0" max="256" step="1" inputmode="decimal" /> mm</span>
+            </div>
+            <input id="posX" type="range" min="0" max="220" step="1" value="110" />
+          </div>
+          <div class="control">
+            <div class="control__label"><span>Y position</span>
+              <span class="num-wrap"><input id="posYOut" class="num-edit" type="number" min="0" max="256" step="1" inputmode="decimal" /> mm</span>
+            </div>
+            <input id="posY" type="range" min="0" max="220" step="1" value="110" />
+          </div>
+          <div class="control">
+            <div class="control__label"><span>Rotate X (tilt)</span>
+              <span class="num-wrap"><input id="rotXOut" class="num-edit" type="number" min="0" max="360" step="1" inputmode="decimal" /> °</span>
+            </div>
+            <input id="rotX" type="range" min="0" max="360" step="1" value="0" />
+          </div>
+          <div class="control">
+            <div class="control__label"><span>Rotate Y (tilt)</span>
+              <span class="num-wrap"><input id="rotYOut" class="num-edit" type="number" min="0" max="360" step="1" inputmode="decimal" /> °</span>
+            </div>
+            <input id="rotY" type="range" min="0" max="360" step="1" value="0" />
+          </div>
+          <div class="control">
+            <div class="control__label"><span>Rotate Z (spin)</span>
+              <span class="num-wrap"><input id="rotZOut" class="num-edit" type="number" min="0" max="360" step="1" inputmode="decimal" /> °</span>
+            </div>
+            <input id="rotZ" type="range" min="0" max="360" step="1" value="0" />
+          </div>
+
+          <div class="row row--snap">
+            <span class="snap-label">Quick tilt 90°:</span>
+            <button class="snap-btn" data-axis="x">X</button>
+            <button class="snap-btn" data-axis="y">Y</button>
+            <button class="snap-btn" data-axis="z">Z</button>
+          </div>
+
+          <div class="control">
+            <div class="control__label"><span>Scale</span>
+              <span class="num-wrap"><input id="scaleOut" class="num-edit" type="number" min="10" max="300" step="1" inputmode="decimal" /> %</span>
+            </div>
+            <input id="scale" type="range" min="10" max="300" step="1" value="100" />
+          </div>
+
+          <div class="row row--actions">
+            <button id="resetBtn" class="btn btn--ghost">Reset</button>
+            <button id="sliceBtn" class="btn btn--primary" disabled>Slice ▶</button>
+          </div>
+
+          <div id="sliceStats" class="slice-stats" hidden>
+            <div class="slice-stat"><span class="slice-stat__icon">⏱</span><span id="statTime" class="slice-stat__val">—</span><span class="slice-stat__lbl">time</span></div>
+            <div class="slice-stat"><span class="slice-stat__icon">⚖</span><span id="statWeight" class="slice-stat__val">—</span><span class="slice-stat__lbl">filament</span></div>
+            <div class="slice-stat"><span class="slice-stat__icon">📑</span><span id="statLayers" class="slice-stat__val">—</span><span class="slice-stat__lbl">layers</span></div>
+          </div>
+
+          <div class="row row--print" id="printRow" hidden>
+            <select id="printerSel" class="printer-sel"></select>
+            <button id="printBtn" class="btn btn--send" disabled>Send ⤴</button>
+          </div>
+
+          <div id="filamentBar" class="filament-bar" hidden>
+            <div class="filament-bar__head">
+              <span>Canvas filament — tap a slot to print in that colour</span>
+              <button id="filamentRefresh" class="mini-btn" title="Sync from printer">⟳</button>
+            </div>
+            <div id="filamentSlots" class="slots"></div>
+          </div>
+
+          <pre id="log" class="log" aria-live="polite"></pre>
+        </section>
+      </section>
+
+      <!-- ═══ PAINT VIEW (its own page; shares the 3D viewport) ═══ -->
+      <section id="view-paint" class="view">
+        <section class="panel">
+          <div class="panel__handle paint-handle"></div>
+          <div class="paint-bar">
+            <div class="paint-bar__head"><span>🎨 Paint multi-colour</span></div>
+            <div class="paint-modes" id="paintModes">
+              <button class="paint-mode active" data-tool="rotate">🔄 Rotate</button>
+              <button class="paint-mode" data-tool="brush">✏️ Brush</button>
+              <button class="paint-mode" data-tool="face">👆 Face</button>
+              <button class="paint-mode" data-tool="fx">✨ Effects</button>
+            </div>
+            <div id="paintPalette" class="paint-palette"></div>
+            <div id="fxControls" class="layer-controls" hidden>
+              <label class="field"><span>Effect</span>
+                <select id="fxType">
+                  <option value="clean">Clean layer change (crisp)</option>
+                  <option value="interlock">Interlock seam (toothed)</option>
+                  <option value="fade">Fade / gradient</option>
+                  <option value="stripes">Stripes (2 colour)</option>
+                  <option value="rainbow">Rainbow bands (all colours)</option>
+                  <option value="speckle">Speckle / confetti</option>
+                  <option value="checker">Checkerboard</option>
+                </select>
+              </label>
+              <div class="fx-colors">
+                <div><span class="fx-lbl">Colour A (lower / base)</span><div id="fxPaletteA" class="paint-palette"></div></div>
+                <div><span class="fx-lbl">Colour B (upper / effect)</span><div id="fxPaletteB" class="paint-palette"></div></div>
+              </div>
+              <label class="layer-row" id="fxRowFrom"><span class="fx-rowlbl">Change at</span> <input id="layFromOut" class="num-edit" type="number" min="0" max="100" step="0.2" inputmode="decimal" /> mm
+                <input id="layFrom" type="range" min="0" max="100" value="0" step="0.2" />
+              </label>
+              <label class="layer-row" id="fxRowTo" hidden><span class="fx-rowlbl">…to</span> <input id="layToOut" class="num-edit" type="number" min="0" max="100" step="0.2" inputmode="decimal" /> mm
+                <input id="layTo" type="range" min="0" max="100" value="0" step="0.2" />
+              </label>
+              <button id="fxApply" class="mini-btn">✨ Apply effect</button>
+            </div>
+            <div class="paint-bar__actions">
+              <button id="paintFill" class="mini-btn">Fill all</button>
+              <button id="paintClear" class="mini-btn">Clear paint</button>
+            </div>
+            <span class="hint" id="paintHint">Rotate to aim · Brush to drag-paint · Face to tap-fill · Effects for layer changes, fades & stripes. Slot #1 = unpainted base.</span>
+            <p class="hint" id="paintEmptyHint">Load a model on the <b>Slicer</b> tab and select your CC2 — then paint here.</p>
+          </div>
+        </section>
+      </section>
+
+      <!-- ═══ PRINTERS VIEW ═══ -->
+      <section id="view-printers" class="view page">
+        <h2 class="page__title">Printers</h2>
+        <button id="scanBtn" class="btn btn--primary btn--wide">🔍 Scan network for printers</button>
+        <p class="hint">Finds Elegoo printers on your Wi-Fi (and updates IPs if they changed). The printer must be powered on.</p>
+        <div id="printerList" class="printer-list"></div>
+
+        <div class="group" style="margin-top:14px">
+          <div class="group__title">Add printer</div>
+          <div class="field-row">
+            <label class="field"><span>Name</span><input id="addName" type="text" placeholder="e.g. A1 mini" /></label>
+            <label class="field"><span>IP address</span><input id="addHost" type="text" placeholder="192.168.x.x" inputmode="decimal" /></label>
+          </div>
+          <label class="field"><span>Type</span>
+            <select id="addType">
+              <option value="sdcp">Elegoo Centauri Carbon (CC1)</option>
+              <option value="mqtt">Elegoo Centauri Carbon 2 (CC2)</option>
+              <option value="bambu">Bambu Lab (A1 mini / A1 / P1 / X1, LAN mode)</option>
+            </select>
+          </label>
+          <div id="bambuFields" hidden>
+            <div class="field-row">
+              <label class="field"><span>Serial number</span><input id="addSerial" type="text" placeholder="printer: Settings → Device" /></label>
+              <label class="field"><span>LAN access code</span><input id="addCode" type="text" placeholder="printer: Settings → WLAN" /></label>
+            </div>
+            <p class="hint">Enable LAN mode on the printer first. The access code and serial are both shown on the printer's screen.</p>
+          </div>
+          <button id="addPrinterBtn" class="btn btn--primary btn--wide">＋ Add printer</button>
+        </div>
+
+        <button id="statusBtn" class="btn btn--ghost btn--wide" style="margin-top:12px">📊 Check selected printer status</button>
+        <pre id="statusOut" class="log"></pre>
+      </section>
+
+      <!-- ═══ SETTINGS VIEW ═══ -->
+      <section id="view-settings" class="view page">
+        <h2 class="page__title">Print settings</h2>
+
+        <div class="group">
+          <div class="group__title">Saved profiles</div>
+          <label class="field"><span>Profile</span><select id="profileSel"><option value="">(none saved yet)</option></select></label>
+          <div class="profile-actions">
+            <button id="profileApply" class="mini-btn">Apply</button>
+            <button id="profileSave" class="mini-btn">Save current as…</button>
+            <button id="profileDelete" class="mini-btn">Delete</button>
+          </div>
+          <p class="hint">A profile remembers everything below (presets, plate, quality, infill, supports, temps) so you can switch setups in one tap.</p>
+        </div>
+
+        <div class="group">
+          <div class="group__title">Presets</div>
+          <label class="field"><span>Printer</span><select id="machineSel"></select></label>
+          <label class="field"><span>Quality / process</span><select id="processSel"></select></label>
+          <label class="field"><span>Filament</span><select id="filamentSel"></select></label>
+          <label class="field"><span>Bed / plate type</span>
+            <select id="bedTypeSel">
+              <option value="Textured PEI Plate" selected>Textured PEI Plate</option>
+              <option value="High Temp Plate">Smooth PEI Plate</option>
+              <option value="Cool Plate">Cool Plate</option>
+              <option value="Engineering Plate">Engineering Plate</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="group">
+          <div class="group__title">Quality</div>
+          <div class="field-row">
+            <label class="field"><span>Layer height (mm)</span>
+              <input id="setLayerHeight" type="number" min="0.04" max="0.4" step="0.02" placeholder="preset" inputmode="decimal" />
+            </label>
+            <label class="field"><span>Walls</span>
+              <input id="setWalls" type="number" min="1" max="10" step="1" placeholder="preset" inputmode="numeric" />
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>Top layers</span>
+              <input id="setTopLayers" type="number" min="0" max="20" step="1" placeholder="preset" inputmode="numeric" />
+            </label>
+            <label class="field"><span>Bottom layers</span>
+              <input id="setBottomLayers" type="number" min="0" max="20" step="1" placeholder="preset" inputmode="numeric" />
+            </label>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group__title">Infill</div>
+          <label class="field"><span>Density: <output id="infillOut">preset</output></span>
+            <input id="setInfill" type="range" min="0" max="100" step="5" value="0" />
+          </label>
+          <label class="field"><span>Pattern</span>
+            <select id="setInfillPattern">
+              <option value="">(use preset)</option>
+              <option value="grid">Grid</option>
+              <option value="gyroid">Gyroid</option>
+              <option value="honeycomb">Honeycomb</option>
+              <option value="cubic">Cubic</option>
+              <option value="rectilinear">Rectilinear</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="group">
+          <div class="group__title">Adhesion & support</div>
+          <label class="field field--row">
+            <span>Supports</span>
+            <input id="setSupports" type="checkbox" class="toggle" />
+          </label>
+          <label class="field"><span>Brim</span>
+            <select id="setBrim">
+              <option value="">(use preset)</option>
+              <option value="no_brim">No brim</option>
+              <option value="outer_only">Brim (outer)</option>
+              <option value="brim_ears">Brim ears</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="group">
+          <div class="group__title">Multi-colour (Canvas)</div>
+          <label class="field field--row">
+            <span>Prime / wipe tower</span>
+            <input id="setPrimeTower" type="checkbox" class="toggle" checked />
+          </label>
+          <label class="field"><span>Prime tower width (mm)</span>
+            <input id="setPrimeTowerWidth" type="number" min="20" max="80" step="1" placeholder="preset" inputmode="decimal" />
+          </label>
+          <p class="hint">Purges the old colour into a tower between swaps so colours stay clean. Recommended for painted prints.</p>
+        </div>
+
+        <div class="group">
+          <div class="group__title">Temperatures (override)</div>
+          <div class="field-row">
+            <label class="field"><span>Bed °C</span>
+              <input id="bedTemp" type="number" min="0" max="120" step="1" placeholder="auto" inputmode="numeric" />
+            </label>
+            <label class="field"><span>Nozzle °C</span>
+              <input id="nozzleTemp" type="number" min="0" max="320" step="1" placeholder="auto" inputmode="numeric" />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Bottom tab bar -->
+      <nav id="tabbar">
+        <button class="tab tab--active" data-view="slicer"><span class="tab__icon">🧊</span>Slicer</button>
+        <button class="tab" data-view="paint"><span class="tab__icon">🎨</span>Paint</button>
+        <button class="tab" data-view="printers"><span class="tab__icon">🖨️</span>Printers</button>
+        <button class="tab" data-view="settings"><span class="tab__icon">⚙️</span>Settings</button>
+      </nav>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

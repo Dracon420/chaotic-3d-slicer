@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chaotic 3D Slicer</title>
+    <style>
+      :root { --bg:#0d1117; --panel:#161b22; --border:#283039; --text:#e6edf3; --muted:#8b949e; --accent:#2f81f7; --ok:#3fb950; --err:#f85149; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family:-apple-system,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); padding:18px; }
+      h1 { font-size:18px; margin:0 0 2px; display:flex; align-items:center; gap:8px; }
+      .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+      .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
+      .status { font-size:13px; }
+      .status b { color:var(--ok); }
+      .status.err b { color:var(--err); }
+      .qr { display:flex; flex-direction:column; align-items:center; gap:10px; }
+      .qr img { width:200px; height:200px; border-radius:8px; background:#fff; padding:6px; }
+      .url { font-size:16px; font-weight:700; color:var(--accent); word-break:break-all; text-align:center; }
+      .url-list { list-style:none; padding:0; margin:8px 0 0; }
+      .url-list li { font-size:13px; color:var(--muted); text-align:center; }
+      .url-list li a { color:var(--accent); text-decoration:none; }
+      ol { margin:6px 0 0; padding-left:18px; font-size:12.5px; color:var(--muted); line-height:1.6; }
+      .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(63,185,80,.15); color:var(--ok); }
+      .pill.err { background:rgba(248,81,73,.15); color:var(--err); }
+      code { background:#0b0f14; padding:1px 5px; border-radius:5px; color:var(--text); }
+    </style>
+  </head>
+  <body>
+    <h1>🧊 Chaotic 3D Slicer <span id="state" class="pill">starting…</span></h1>
+    <div class="sub" id="detect">Detecting your slicer…</div>
+
+    <div class="card">
+      <b>① Trust the certificate (one time)</b>
+      <div class="qr" style="margin-top:8px">
+        <img id="caQr" alt="QR for the certificate" hidden style="width:140px;height:140px" />
+        <a href="#" id="caUrl" style="color:var(--accent);font-size:13px;word-break:break-all"></a>
+      </div>
+      <ol>
+        <li>On the phone (same Wi‑Fi), scan the QR / open the link to download the certificate.</li>
+        <li>Install it: Android → it prompts (name it “Chaotic 3D”); iPhone → Settings → Profile, then Settings → General → About → Certificate Trust → enable it.</li>
+      </ol>
+    </div>
+
+    <div class="card qr">
+      <b style="align-self:flex-start">② Open & install the app</b>
+      <div class="url" id="primaryUrl">—</div>
+      <img id="qr" alt="QR to open the app" hidden />
+      <ol style="align-self:flex-start">
+        <li>Open the <b>https</b> address (scan the big QR).</li>
+        <li>Browser menu → <b>Install app / Add to Home screen</b> → it runs full‑screen, no address bar.</li>
+      </ol>
+      <ul class="url-list" id="urls"></ul>
+    </div>
+
+    <div class="card">
+      <span class="status" id="slicer">Slicer: …</span>
+    </div>
+
+    <script>
+      (async () => {
+        const info = await window.api.getInfo();
+        const stateEl = document.getElementById('state');
+        const det = document.getElementById('detect');
+        const d = info.detect || {};
+        if (d.ok) {
+          det.innerHTML = 'Imported presets from <code>' + (d.presetRoot || 'slicer') + '</code>';
+          document.getElementById('slicer').innerHTML =
+            'Slicer: <b>found</b> · ' + (d.counts ? (d.counts.machines + ' machines, ' + d.counts.processes + ' processes, ' + d.counts.filaments + ' filaments') : '');
+        } else {
+          det.innerHTML = '<span style="color:var(--err)">' + (d.reason || 'Slicer not found') + '</span>';
+          document.getElementById('slicer').innerHTML = 'Slicer: <span style="color:var(--err)">not configured</span>';
+        }
+        const httpsUrls = info.httpsUrls || [];
+        const running = (httpsUrls.length || (info.urls || []).length) && !info.serverError;
+        stateEl.textContent = running ? 'running' : 'error';
+        stateEl.className = 'pill' + (running ? '' : ' err');
+
+        // Step 1 — CA
+        if (info.caQr) { const c = document.getElementById('caQr'); c.src = info.caQr; c.hidden = false; }
+        const caA = document.getElementById('caUrl');
+        caA.textContent = info.caUrl || '(no address)';
+        caA.onclick = (e) => { e.preventDefault(); info.caUrl && window.api.openExternal(info.caUrl); };
+
+        // Step 2 — app (https primary)
+        document.getElementById('primaryUrl').textContent = httpsUrls[0] || (info.urls || [])[0] || 'No network address found';
+        if (info.qr) { const q = document.getElementById('qr'); q.src = info.qr; q.hidden = false; }
+        const ul = document.getElementById('urls');
+        const remote = (info.remoteUrls || []).map((u) => u + '  (remote · Tailscale)');
+        httpsUrls.concat(remote).concat((info.urls || []).map((u) => u + '  (no‑install)')).forEach((u) => {
+          const raw = u.split('  ')[0];
+          const li = document.createElement('li');
+          const a = document.createElement('a'); a.href = '#'; a.textContent = u;
+          a.onclick = (e) => { e.preventDefault(); window.api.openExternal(raw); };
+          li.appendChild(a); ul.appendChild(li);
+        });
+      })();
+    </script>
+  </body>
+</html>
