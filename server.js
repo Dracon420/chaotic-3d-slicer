@@ -457,8 +457,40 @@ app.get('/api/printers', async (_req, res) => {
   res.json({ printers: printers.map(({ accessCode, ...rest }) => rest) });
 });
 
+// A CC2 (MQTT) is addressed by its MainboardID — every topic is
+// `elegoo/<MainboardID>/...`. Without it, every request goes to `elegoo//...`
+// and the printer silently ignores it (looks like an MQTT timeout). The Add-
+// printer form can't ask the user for it, so we read it straight off the
+// printer's MQTT broker. Returns the id, or '' if the printer didn't answer.
+async function discoverMainboardId(host) {
+  // The CC2 only reveals its MainboardID when it publishes a status heartbeat,
+  // which can be several seconds apart — give it a generous window, and one
+  // retry, before giving up.
+  for (const ms of [9000, 9000]) {
+    try {
+      const id = await printer.discoverMqttMainboard(host, ms);
+      if (id) return id;
+    } catch { /* try again */ }
+  }
+  return '';
+}
+
+// For an mqtt printer that somehow has no MainboardID yet (older saved entry,
+// printer was asleep when added), try to fill it in now and persist it.
+async function ensureMainboardId(p) {
+  if (!p || p.protocol !== 'mqtt' || p.mainboardId) return p;
+  const id = await discoverMainboardId(p.host);
+  if (id) {
+    p.mainboardId = id;
+    // Persist only if it's a user-added (custom) printer; detected ones get
+    // their id from the slicer config on the next read anyway.
+    if (store.customPrinters().some((c) => c.host === p.host)) store.addPrinter({ ...p });
+  }
+  return p;
+}
+
 // ─── API: add / remove a printer ─────────────────────────────
-app.post('/api/printers', (req, res) => {
+app.post('/api/printers', async (req, res) => {
   const { name, host, protocol, serial, accessCode } = req.body || {};
   if (!host || !protocol) return res.status(400).json({ error: 'Missing host or protocol' });
   if (!/^[\w.:-]+$/.test(host)) return res.status(400).json({ error: 'Invalid host/IP' });
@@ -472,8 +504,16 @@ app.post('/api/printers', (req, res) => {
     model: protocol === 'bambu' ? 'Bambu (LAN)' : protocol === 'mqtt' ? 'Centauri Carbon 2' : 'Centauri Carbon',
   };
   if (protocol === 'bambu') { entry.serial = serial.trim(); entry.accessCode = accessCode.trim(); }
+  // For a CC2, grab its MainboardID now so MQTT works immediately. If the
+  // printer is asleep/unreachable we still save it; ensureMainboardId() will
+  // backfill the id the first time it's used.
+  let mqttReady = null;
+  if (protocol === 'mqtt') {
+    entry.mainboardId = await discoverMainboardId(entry.host);
+    mqttReady = !!entry.mainboardId;
+  }
   store.addPrinter(entry);
-  res.json({ success: true });
+  res.json({ success: true, name: entry.name, mqttReady });
 });
 
 app.delete('/api/printers/:host', (req, res) => {
@@ -522,6 +562,8 @@ app.get('/api/printer-filament', async (req, res) => {
   const p = resolvePrinter({ host: req.query.host, protocol: req.query.protocol, mainboardId: req.query.mainboardId });
   if (!p) return res.status(404).json({ error: 'Unknown printer' });
   if (p.protocol !== 'mqtt') return res.json({ supported: false, trays: [] });
+  await ensureMainboardId(p);
+  if (!p.mainboardId) return res.status(502).json({ error: `Couldn't reach the CC2 at ${p.host} to read its ID — make sure it's powered on and on this Wi‑Fi, then try again.` });
   try {
     const trays = await printer.getCanvasFilaments({ host: p.host, mainboardId: p.mainboardId });
     res.json({ supported: true, trays });
@@ -535,6 +577,8 @@ app.get('/api/printer-status', async (req, res) => {
   const p = resolvePrinter({ host: req.query.host, protocol: req.query.protocol, mainboardId: req.query.mainboardId });
   if (!p) return res.status(404).json({ error: 'Unknown printer' });
   if (p.protocol !== 'mqtt') return res.json({ supported: false });
+  await ensureMainboardId(p);
+  if (!p.mainboardId) return res.status(502).json({ error: `Couldn't reach the CC2 at ${p.host} — make sure it's powered on and on this Wi‑Fi.` });
   try {
     const status = await printer.getStatus({ host: p.host, mainboardId: p.mainboardId });
     res.json({ supported: true, status });
@@ -588,6 +632,10 @@ app.post('/api/print', async (req, res) => {
         return res.json({ success: true, started: true });
       }
     } else if (p.protocol === 'mqtt') {
+      await ensureMainboardId(p);
+      if (start && !p.mainboardId) {
+        return res.status(502).json({ error: `Couldn't reach the CC2 at ${p.host} to start the print — make sure it's powered on and on this Wi‑Fi.` });
+      }
       // CC2: upload the gcode as-is. The object is assigned (in the 3MF) to
       // filament index = the chosen tray, so the gcode prints on T<tray>; the
       // full identity slot_map + the 2004 handshake (in startPrintCC2) engage

@@ -1420,6 +1420,8 @@ els.addPrinterBtn.addEventListener('click', async () => {
     }
   }
   els.addPrinterBtn.disabled = true;
+  const oldLabel = els.addPrinterBtn.textContent;
+  els.addPrinterBtn.textContent = body.protocol === 'mqtt' ? 'Adding… (contacting CC2)' : 'Adding…';
   try {
     const res = await fetch('/api/printers', {
       method: 'POST',
@@ -1430,13 +1432,36 @@ els.addPrinterBtn.addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.error || 'add failed');
     els.addName.value = ''; els.addHost.value = ''; els.addSerial.value = ''; els.addCode.value = '';
     await loadPrinters();
-    log(`Added printer ${body.name || body.host}.`, 'ok');
+    const who = data.name || body.name || body.host;
+    if (body.protocol === 'mqtt' && data.mqttReady === false) {
+      // Added, but we couldn't read the CC2's MainboardID (asleep / wrong IP).
+      addPrinterNote(`Added "${who}", but couldn't reach the CC2 to set it up. Make sure it's powered on and on this Wi‑Fi, then tap “Scan network”.`, 'warn');
+    } else {
+      addPrinterNote(`Added "${who}".`, 'ok');
+    }
   } catch (err) {
-    log(`Could not add printer: ${err.message}`, 'err');
+    addPrinterNote(`Could not add printer: ${err.message}`, 'err');
   } finally {
     els.addPrinterBtn.disabled = false;
+    els.addPrinterBtn.textContent = oldLabel;
   }
 });
+
+// Inline confirmation shown right under the Add-printer button, so the action
+// is obviously acknowledged even though the main activity log lives elsewhere.
+function addPrinterNote(text, kind) {
+  let el = document.getElementById('addPrinterNote');
+  if (!el) {
+    el = document.createElement('p');
+    el.id = 'addPrinterNote';
+    el.className = 'hint';
+    el.style.marginTop = '8px';
+    els.addPrinterBtn.insertAdjacentElement('afterend', el);
+  }
+  el.textContent = text;
+  el.style.color = kind === 'err' ? 'var(--err,#f85149)' : kind === 'warn' ? 'var(--warn,#d29922)' : 'var(--ok,#3fb950)';
+  log(text, kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : 'info');
+}
 
 // ─── Saved settings profiles (Settings page) ─────────────────
 // Everything the Settings page controls, captured/restored as one object.

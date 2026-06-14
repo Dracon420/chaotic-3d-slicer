@@ -38,7 +38,7 @@
       </div>
       <ol>
         <li>On the phone (same Wi‑Fi), scan the QR / open the link to download the certificate.</li>
-        <li>Install it: Android → it prompts (name it “Chaotic 3D”); iPhone → Settings → Profile, then Settings → General → About → Certificate Trust → enable it.</li>
+        <li><b>Android:</b> install it as a <b>CA certificate</b> (Settings → Encryption &amp; credentials → Install a certificate → <b>CA certificate</b>) — <b>not</b> “Wi‑Fi certificate”. Only the CA slot makes the browser trust it and show <b>Install</b>. <b>iPhone:</b> Settings → Profile Downloaded → Install, then Settings → General → About → Certificate Trust → enable it.</li>
         <li>If the link won't open, use <span id="caHttpsUrl" style="color:var(--accent)"></span> instead (accept the warning once).</li>
       </ol>
       <p style="font-size:11.5px;color:var(--muted);margin:6px 0 0">Each PC generates its own certificate — if you run the app on a second PC, install that PC's certificate too (the phone can hold several).</p>
