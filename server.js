@@ -427,7 +427,7 @@ app.post('/api/slice', async (req, res) => {
     if (!res.headersSent) res.status(500).json({ error: err.message });
   } finally {
     // Tidy the transient job folder (keep the published G-code in OUTPUT_DIR).
-    fs.rm(jobDir, { recursive: true, force: true }, () => {});
+    if (!process.env.KEEP_JOBS) fs.rm(jobDir, { recursive: true, force: true }, () => {});
   }
 });
 

@@ -55,6 +55,9 @@ const els = {
   cloneBtn: $('#cloneBtn'),
   arrangeBtn: $('#arrangeBtn'),
   deleteBtn: $('#deleteBtn'),
+  lockBtn: $('#lockBtn'),
+  objectListPaint: $('#objectListPaint'),
+  paintObjectBar: $('#paintObjectBar'),
   saveName: $('#saveName'),
   posX: $('#posX'),
   posY: $('#posY'),
@@ -459,14 +462,11 @@ function positionAllMeshes() {
 }
 
 // Small list of parts under the controls; tap to select, ✕ to remove.
-function renderObjectList() {
-  const host = els.objectList;
+// Render the part list into one host. `withDelete` adds the ✕ remove button
+// (Slicer page only — on Paint we just switch parts).
+function renderListInto(host, withDelete) {
   if (!host) return;
-  // Single source of truth for the header label.
-  const n = state.objects.length;
-  els.modelName.textContent = n === 0 ? 'no model' : n === 1 ? state.objects[0].baseName : `${n} parts`;
   host.innerHTML = '';
-  host.hidden = n < 2; // only show the list once there's more than one part
   state.objects.forEach((o, i) => {
     const row = document.createElement('div');
     row.className = 'obj-row' + (i === state.sel ? ' obj-row--sel' : '');
@@ -474,13 +474,28 @@ function renderObjectList() {
     label.className = 'obj-row__name';
     label.textContent = `${i + 1}. ${o.baseName}`;
     label.addEventListener('click', () => selectObject(i));
-    const del = document.createElement('button');
-    del.className = 'obj-row__del'; del.textContent = '✕'; del.title = 'Remove this part';
-    del.addEventListener('click', (e) => { e.stopPropagation(); selectObject(i); deleteSelectedObject(); });
-    row.appendChild(label); row.appendChild(del);
+    row.appendChild(label);
+    if (withDelete) {
+      const del = document.createElement('button');
+      del.className = 'obj-row__del'; del.textContent = '✕'; del.title = 'Remove this part';
+      del.addEventListener('click', (e) => { e.stopPropagation(); selectObject(i); deleteSelectedObject(); });
+      row.appendChild(del);
+    }
     host.appendChild(row);
   });
-  if (els.objCount) els.objCount.textContent = state.objects.length > 1 ? `${state.objects.length} parts` : '';
+}
+
+function renderObjectList() {
+  const n = state.objects.length;
+  // Single source of truth for the header label.
+  els.modelName.textContent = n === 0 ? 'no model' : n === 1 ? state.objects[0].baseName : `${n} parts`;
+  if (els.objectList) els.objectList.hidden = n < 2; // only show once there's >1 part
+  renderListInto(els.objectList, true);
+  // Paint page gets the same list (sans delete) so you can switch parts without
+  // hopping back to the Slicer tab.
+  if (els.paintObjectBar) els.paintObjectBar.hidden = n < 2;
+  renderListInto(els.objectListPaint, false);
+  if (els.objCount) els.objCount.textContent = n > 1 ? `${n} parts` : '';
 }
 
 // ─── Model loading (STL / 3MF / OBJ) ─────────────────────────
@@ -1192,6 +1207,37 @@ bindNumber(els.scale, els.scaleOut, applyTransform);
 bindNumber(els.rotX, els.rotXOut, queueRebuild);
 bindNumber(els.rotY, els.rotYOut, queueRebuild);
 bindNumber(els.rotZ, els.rotZOut, queueRebuild);
+
+// ─── Slider lock + per-slider reset ──────────────────────────
+// The transform sliders sit in a scrollable panel and are easy to bump while
+// scrolling on a phone. They start LOCKED (drag disabled) — the number box next
+// to each still takes precise input, and each slider gets a ⟲ reset button.
+const transformSliders = () => [
+  { s: els.posX, o: els.posXOut, def: () => state.bed.x / 2, onChange: applyTransform },
+  { s: els.posY, o: els.posYOut, def: () => state.bed.y / 2, onChange: applyTransform },
+  { s: els.rotX, o: els.rotXOut, def: () => 0, onChange: queueRebuild },
+  { s: els.rotY, o: els.rotYOut, def: () => 0, onChange: queueRebuild },
+  { s: els.rotZ, o: els.rotZOut, def: () => 0, onChange: queueRebuild },
+  { s: els.scale, o: els.scaleOut, def: () => 100, onChange: applyTransform },
+];
+let slidersLocked = true;
+function applyLock() {
+  for (const { s } of transformSliders()) s.disabled = slidersLocked;
+  els.lockBtn.textContent = slidersLocked ? '🔒 Sliders locked — tap to unlock' : '🔓 Sliders unlocked — tap to lock';
+  els.lockBtn.classList.toggle('lock-btn--open', !slidersLocked);
+}
+els.lockBtn.addEventListener('click', () => { slidersLocked = !slidersLocked; applyLock(); });
+// Inject a ⟲ reset button into each transform control's label (works even when
+// the slider itself is locked).
+for (const cfg of transformSliders()) {
+  const label = cfg.s.parentElement.querySelector('.control__label');
+  if (!label || label.querySelector('.slider-reset')) continue;
+  const b = document.createElement('button');
+  b.className = 'slider-reset'; b.type = 'button'; b.textContent = '⟲'; b.title = 'Reset this slider';
+  b.addEventListener('click', () => { const d = cfg.def(); cfg.s.value = d; setNum(cfg.o, d); cfg.onChange(); });
+  label.appendChild(b);
+}
+applyLock();
 
 // Quick 90° tilt buttons — snap a face toward the bed.
 for (const btn of document.querySelectorAll('.snap-btn')) {

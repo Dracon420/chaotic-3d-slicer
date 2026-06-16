@@ -53,6 +53,8 @@
             <input id="saveName" class="save-name" type="text" placeholder="Save as… (file / job name)" />
           </div>
 
+          <button id="lockBtn" class="btn btn--ghost btn--sm lock-btn" type="button">🔒 Sliders locked — tap to unlock</button>
+
           <div class="control">
             <div class="control__label"><span>X position</span>
               <span class="num-wrap"><input id="posXOut" class="num-edit" type="number" min="0" max="256" step="1" inputmode="decimal" /> mm</span>
@@ -132,6 +134,10 @@
           <div class="panel__handle paint-handle"></div>
           <div class="paint-bar">
             <div class="paint-bar__head"><span>🎨 Paint multi-colour</span></div>
+            <div id="paintObjectBar" class="paint-objbar" hidden>
+              <span class="paint-objbar__lbl">Part:</span>
+              <div id="objectListPaint" class="object-list object-list--paint"></div>
+            </div>
             <div class="paint-modes" id="paintModes">
               <button class="paint-mode active" data-tool="rotate">🔄 Rotate</button>
               <button class="paint-mode" data-tool="brush">✏️ Brush</button>

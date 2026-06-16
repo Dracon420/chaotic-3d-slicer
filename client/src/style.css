@@ -936,3 +936,27 @@ input[type='text'] {
 .row--objacts { display: flex; gap: 6px; margin-bottom: 4px; }
 .row--objacts .btn--sm { flex: 1; }
 .btn--sm { padding: 7px 8px; font-size: 12.5px; }
+
+/* ── Slider lock + per-slider reset ────────────────────────── */
+.lock-btn { width: 100%; margin: 4px 0 8px; }
+.lock-btn--open { color: var(--accent, #2f81f7); border-color: var(--accent, #2f81f7); }
+input[type="range"]:disabled { opacity: 0.45; cursor: not-allowed; }
+.control__label { position: relative; }
+.slider-reset {
+  margin-left: 8px;
+  border: 1px solid var(--border, #283039);
+  background: transparent;
+  color: var(--muted, #8b949e);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.slider-reset:hover { color: var(--accent, #2f81f7); border-color: var(--accent, #2f81f7); }
+
+/* ── Paint-page part selector ──────────────────────────────── */
+.paint-objbar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.paint-objbar__lbl { font-size: 12px; color: var(--muted, #8b949e); flex: 0 0 auto; }
+.object-list--paint { flex: 1; flex-direction: row; flex-wrap: wrap; max-height: none; }
+.object-list--paint .obj-row { padding: 5px 10px; }
