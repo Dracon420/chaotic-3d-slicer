@@ -892,3 +892,47 @@ input[type='text'] {
 .field > span {
   font-size: 13px;
 }
+
+/* ── Multi-object editor ───────────────────────────────────── */
+.object-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 2px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+.obj-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border, #283039);
+  border-radius: 8px;
+  background: var(--panel, #161b22);
+  cursor: pointer;
+}
+.obj-row--sel {
+  border-color: var(--accent, #2f81f7);
+  box-shadow: inset 0 0 0 1px var(--accent, #2f81f7);
+}
+.obj-row__name {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.obj-row__del {
+  border: 0;
+  background: transparent;
+  color: var(--muted, #8b949e);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.obj-row__del:hover { color: var(--err, #f85149); }
+.row--objacts { display: flex; gap: 6px; margin-bottom: 4px; }
+.row--objacts .btn--sm { flex: 1; }
+.btn--sm { padding: 7px 8px; font-size: 12.5px; }

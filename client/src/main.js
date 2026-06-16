@@ -11,6 +11,14 @@ import { io } from 'socket.io-client';
 // ─── State ───────────────────────────────────────────────────
 const state = {
   bed: { x: 220, y: 220 },
+  // Multi-object editor. `objects` holds every part on the bed; `sel` is the
+  // selected index. The per-object fields below (rawGeometry, paintMap, …) always
+  // MIRROR objects[sel] — saved back on every selection change — so all the
+  // existing single-model code (paint, effects, slice) operates on the selection
+  // unchanged. Each object: { raw, base, paintMap, hasPaint, topology, modelHeight,
+  // baseName, meshDirty, serverName, mesh, tf:{posX,posY,rotX,rotY,rotZ,scale} }.
+  objects: [],
+  sel: -1,
   modelMesh: null, // THREE.Mesh of the loaded model
   serverName: null, // filename on the backend (needed to slice)
   socketId: null,
@@ -42,6 +50,11 @@ const els = {
   status: $('#status'),
   fileInput: $('#fileInput'),
   modelName: $('#modelName'),
+  objCount: $('#objCount'),
+  objectList: $('#objectList'),
+  cloneBtn: $('#cloneBtn'),
+  arrangeBtn: $('#arrangeBtn'),
+  deleteBtn: $('#deleteBtn'),
   saveName: $('#saveName'),
   posX: $('#posX'),
   posY: $('#posY'),
@@ -287,10 +300,187 @@ function applyTransform() {
   setNum(els.posYOut, posY);
   setNum(els.scaleOut, scalePct);
 
-  // Rotation is baked into the geometry (so the part re-seats on the bed);
-  // the group only handles position + scale.
-  modelGroup.position.set(bedToWorldX(posX), 0, bedToWorldZ(posY));
-  modelGroup.scale.setScalar(scalePct / 100);
+  // Each object carries its OWN position + scale (multiple parts on one bed), so
+  // we transform the selected mesh, not the shared group. Rotation is baked into
+  // the geometry (so the part re-seats on the bed).
+  const mesh = state.modelMesh;
+  if (mesh) {
+    mesh.position.set(bedToWorldX(posX), 0, bedToWorldZ(posY));
+    mesh.scale.setScalar(scalePct / 100);
+  }
+  const o = state.objects[state.sel];
+  if (o) o.tf = { posX, posY, rotX: +els.rotX.value, rotY: +els.rotY.value, rotZ: +els.rotZ.value, scale: scalePct };
+  updateSelectionBox();
+}
+
+// ─── Multi-object editor ─────────────────────────────────────
+// A wire-frame box marks the selected part.
+let selectionBox = null;
+function updateSelectionBox() {
+  if (selectionBox) { scene.remove(selectionBox); selectionBox.geometry.dispose(); selectionBox = null; }
+  if (state.objects.length > 1 && state.modelMesh) {
+    selectionBox = new THREE.BoxHelper(state.modelMesh, 0x2f81f7);
+    scene.add(selectionBox);
+  }
+}
+
+// Snapshot the live state.* (selected object's working data + slider transform)
+// back into objects[sel], so nothing is lost when we switch selection.
+function saveSelectedObject() {
+  const o = state.objects[state.sel];
+  if (!o) return;
+  o.raw = state.rawGeometry; o.base = state.baseGeometry; o.paintMap = state.paintMap;
+  o.hasPaint = state.hasPaint; o.topology = state.topology; o.modelHeight = state.modelHeight;
+  o.baseName = state.baseName; o.meshDirty = state.meshDirty; o.serverName = state.serverName;
+  o.mesh = state.modelMesh;
+  o.tf = {
+    posX: +els.posX.value, posY: +els.posY.value, rotX: +els.rotX.value,
+    rotY: +els.rotY.value, rotZ: +els.rotZ.value, scale: +els.scale.value,
+  };
+}
+
+// Load objects[i] into the live state.* + sliders and mark it selected.
+function loadObjectIntoState(i) {
+  const o = state.objects[i];
+  if (!o) return;
+  state.sel = i;
+  state.rawGeometry = o.raw; state.baseGeometry = o.base; state.paintMap = o.paintMap;
+  state.hasPaint = o.hasPaint; state.topology = o.topology; state.modelHeight = o.modelHeight;
+  state.baseName = o.baseName; state.meshDirty = o.meshDirty; state.serverName = o.serverName;
+  state.modelMesh = o.mesh;
+  els.posX.value = o.tf.posX; els.posY.value = o.tf.posY;
+  els.rotX.value = o.tf.rotX; els.rotY.value = o.tf.rotY; els.rotZ.value = o.tf.rotZ;
+  els.scale.value = o.tf.scale;
+  setNum(els.posXOut, o.tf.posX); setNum(els.posYOut, o.tf.posY);
+  setNum(els.rotXOut, o.tf.rotX); setNum(els.rotYOut, o.tf.rotY); setNum(els.rotZOut, o.tf.rotZ);
+  setNum(els.scaleOut, o.tf.scale);
+}
+
+function selectObject(i) {
+  if (i === state.sel || !state.objects[i]) return;
+  saveSelectedObject();
+  loadObjectIntoState(i);
+  updateSelectionBox();
+  renderObjectList();
+  updatePaintUI();
+}
+
+// Create a fresh object from a Z-up geometry, append it, select it, build its mesh.
+function addObject(geo, name) {
+  saveSelectedObject();
+  const o = {
+    raw: geo, base: geo.clone(),
+    paintMap: new Int8Array(geo.getAttribute('position').count / 3),
+    hasPaint: false, topology: null, modelHeight: 0, baseName: name || 'model',
+    meshDirty: false, serverName: null, mesh: null,
+    tf: { posX: state.bed.x / 2, posY: state.bed.y / 2, rotX: 0, rotY: 0, rotZ: 0, scale: 100 },
+  };
+  state.objects.push(o);
+  loadObjectIntoState(state.objects.length - 1);
+  rebuildOriented(); // builds + positions this object's mesh
+  o.mesh = state.modelMesh;
+  renderObjectList();
+  return o;
+}
+
+function cloneSelectedObject() {
+  const o = state.objects[state.sel];
+  if (!o) { log('Load a model first.', 'err'); return; }
+  saveSelectedObject();
+  const copy = {
+    raw: o.raw.clone(), base: o.base.clone(),
+    paintMap: o.paintMap ? o.paintMap.slice() : null,
+    hasPaint: o.hasPaint, topology: null, modelHeight: o.modelHeight,
+    baseName: o.baseName, meshDirty: o.meshDirty, serverName: o.serverName, mesh: null,
+    // offset the copy so it isn't hidden under the original
+    tf: { ...o.tf, posX: Math.min(state.bed.x - 5, o.tf.posX + 20), posY: Math.min(state.bed.y - 5, o.tf.posY + 20) },
+  };
+  state.objects.push(copy);
+  loadObjectIntoState(state.objects.length - 1);
+  rebuildOriented();
+  copy.mesh = state.modelMesh;
+  renderObjectList();
+  log(`Cloned “${copy.baseName}”. ${state.objects.length} parts on the bed.`, 'ok');
+}
+
+function deleteSelectedObject() {
+  const o = state.objects[state.sel];
+  if (!o) return;
+  if (o.mesh) { modelGroup.remove(o.mesh); o.mesh.geometry.dispose(); }
+  state.objects.splice(state.sel, 1);
+  if (!state.objects.length) {
+    // Back to empty bed.
+    state.sel = -1; state.rawGeometry = null; state.baseGeometry = null; state.paintMap = null;
+    state.hasPaint = false; state.modelMesh = null; state.serverName = null;
+    els.modelName.textContent = 'no model'; els.sliceBtn.disabled = true;
+    updateSelectionBox(); renderObjectList(); updatePaintUI();
+    return;
+  }
+  state.sel = -1; // force reload
+  loadObjectIntoState(Math.max(0, Math.min(state.objects.length - 1, 0)));
+  updateSelectionBox(); renderObjectList(); updatePaintUI();
+  log(`Deleted a part. ${state.objects.length} left.`, 'ok');
+}
+
+// Shelf-pack every object within the bed (centres each in its cell) and reposition.
+function autoArrange() {
+  if (!state.objects.length) return;
+  saveSelectedObject();
+  const gap = 6;
+  const items = state.objects.map((o) => {
+    const g = o.mesh.geometry; g.computeBoundingBox();
+    const bb = g.boundingBox; const s = o.tf.scale / 100;
+    return { o, w: (bb.max.x - bb.min.x) * s + gap, d: (bb.max.z - bb.min.z) * s + gap };
+  });
+  // Largest first packs tighter.
+  items.sort((a, b) => b.w * b.d - a.w * a.d);
+  let x = 0, y = 0, rowD = 0;
+  for (const it of items) {
+    if (x + it.w > state.bed.x && x > 0) { x = 0; y += rowD; rowD = 0; }
+    it.o.tf.posX = Math.min(state.bed.x - it.w / 2, x + it.w / 2);
+    it.o.tf.posY = Math.min(state.bed.y - it.d / 2, y + it.d / 2);
+    x += it.w; rowD = Math.max(rowD, it.d);
+  }
+  positionAllMeshes();
+  // refresh sliders for the (still) selected object
+  const o = state.objects[state.sel];
+  if (o) { els.posX.value = o.tf.posX; els.posY.value = o.tf.posY; setNum(els.posXOut, o.tf.posX); setNum(els.posYOut, o.tf.posY); }
+  updateSelectionBox();
+  log(`Auto-arranged ${state.objects.length} part(s).`, 'ok');
+}
+
+// Push every object's tf position/scale onto its mesh.
+function positionAllMeshes() {
+  for (const o of state.objects) {
+    if (!o.mesh) continue;
+    o.mesh.position.set(bedToWorldX(o.tf.posX), 0, bedToWorldZ(o.tf.posY));
+    o.mesh.scale.setScalar(o.tf.scale / 100);
+  }
+}
+
+// Small list of parts under the controls; tap to select, ✕ to remove.
+function renderObjectList() {
+  const host = els.objectList;
+  if (!host) return;
+  // Single source of truth for the header label.
+  const n = state.objects.length;
+  els.modelName.textContent = n === 0 ? 'no model' : n === 1 ? state.objects[0].baseName : `${n} parts`;
+  host.innerHTML = '';
+  host.hidden = n < 2; // only show the list once there's more than one part
+  state.objects.forEach((o, i) => {
+    const row = document.createElement('div');
+    row.className = 'obj-row' + (i === state.sel ? ' obj-row--sel' : '');
+    const label = document.createElement('span');
+    label.className = 'obj-row__name';
+    label.textContent = `${i + 1}. ${o.baseName}`;
+    label.addEventListener('click', () => selectObject(i));
+    const del = document.createElement('button');
+    del.className = 'obj-row__del'; del.textContent = '✕'; del.title = 'Remove this part';
+    del.addEventListener('click', (e) => { e.stopPropagation(); selectObject(i); deleteSelectedObject(); });
+    row.appendChild(label); row.appendChild(del);
+    host.appendChild(row);
+  });
+  if (els.objCount) els.objCount.textContent = state.objects.length > 1 ? `${state.objects.length} parts` : '';
 }
 
 // ─── Model loading (STL / 3MF / OBJ) ─────────────────────────
@@ -308,6 +498,39 @@ async function uploadCurrentMesh() {
   if (!res.ok) throw new Error(await res.text());
   state.serverName = (await res.json()).name;
   state.meshDirty = false;
+}
+
+// Bake one object's transform (rotation, scale, bed placement) into geometry in
+// the slicer's Z-up frame, centred so the whole group sits around the bed centre.
+function bakedZupGeometry(o) {
+  const g = o.raw.clone();
+  g.rotateX(THREE.MathUtils.degToRad(o.tf.rotX));
+  g.rotateY(THREE.MathUtils.degToRad(o.tf.rotY));
+  g.rotateZ(THREE.MathUtils.degToRad(o.tf.rotZ));
+  const s = o.tf.scale / 100;
+  g.scale(s, s, s);
+  g.computeBoundingBox();
+  const bb = g.boundingBox;
+  const cx = (bb.max.x + bb.min.x) / 2;
+  const cy = (bb.max.y + bb.min.y) / 2;
+  g.translate(-cx, -cy, -bb.min.z); // centre XY, base at Z=0
+  // place at bed position, relative to bed centre (group ends up centred on origin)
+  g.translate(o.tf.posX - state.bed.x / 2, o.tf.posY - state.bed.y / 2, 0);
+  return g.toNonIndexed();
+}
+
+// Merge all objects into one STL and upload it; returns the server filename.
+async function uploadMergedObjects() {
+  const parts = state.objects.map(bakedZupGeometry);
+  const merged = parts.length === 1 ? parts[0] : BufferGeometryUtils.mergeGeometries(parts, false);
+  merged.computeVertexNormals();
+  const stl = stlExporter.parse(new THREE.Mesh(merged), { binary: true });
+  const form = new FormData();
+  const name = (els.saveName.value.trim() || state.objects[0].baseName || 'plate').replace(/[^a-zA-Z0-9 ._-]/g, '');
+  form.append('model', new Blob([stl], { type: 'application/octet-stream' }), `${name}.stl`);
+  const res = await fetch('/api/upload', { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()).name;
 }
 
 // Merge every mesh in a loaded object into one position-only geometry, baked
@@ -335,7 +558,18 @@ async function parseModel(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   const buf = await file.arrayBuffer();
   if (ext === 'stl') return stlLoader.parse(buf);
-  if (ext === '3mf') return mergeObjectGeometry(new ThreeMFLoader().parse(buf));
+  if (ext === '3mf') {
+    // Some 3MFs (component assemblies, beam-lattice, the Production extension)
+    // make three.js's loader throw a cryptic "reading 'mesh'". Catch it and
+    // give an actionable message instead of crashing the load.
+    let obj;
+    try {
+      obj = new ThreeMFLoader().parse(buf);
+    } catch (e) {
+      throw new Error("This .3mf uses features the in-browser reader can't open. In your slicer, export it as STL (right-click the object → Export → STL) and load that.");
+    }
+    return mergeObjectGeometry(obj);
+  }
   if (ext === 'obj') return mergeObjectGeometry(new OBJLoader().parse(new TextDecoder().decode(buf)));
   throw new Error(`Unsupported file type: .${ext}`);
 }
@@ -384,6 +618,7 @@ function rebuildOriented() {
   const painted = applyPaintColors(geometry); // adds a colour attr if painting
   state.modelMesh = new THREE.Mesh(geometry, painted ? paintMaterial : modelMaterial);
   modelGroup.add(state.modelMesh);
+  if (state.objects[state.sel]) state.objects[state.sel].mesh = state.modelMesh;
   applyTransform();
 }
 
@@ -507,8 +742,13 @@ function updatePaintUI() {
 els.paintFill.addEventListener('click', () => {
   if (!ensurePaintMap()) return;
   state.paintMap.fill(state.activeTray);
-  state.hasPaint = state.activeTray > 0;
+  // An explicit "fill all" always recolours the model — including slot #1,
+  // which is paint-index 0. On a CC2 that slot is a real colour (e.g. black
+  // PETG), so treating it as "no paint" made Fill-all look broken. Show it.
+  state.hasPaint = true;
   rebuildOriented();
+  const c = paintColors()[state.activeTray] || '#888';
+  log(`Filled the whole model with slot #${state.activeTray + 1} (${c}).`, 'ok');
 });
 els.paintClear.addEventListener('click', () => {
   if (!state.baseGeometry) return;
@@ -889,33 +1129,26 @@ els.fileInput.addEventListener('change', async (e) => {
   if (!file) return;
 
   const baseName = file.name.replace(/\.[^.]+$/, '');
-  state.baseName = baseName;
-  state.meshDirty = false;
-  els.modelName.textContent = file.name;
   if (!els.saveName.value.trim()) els.saveName.value = baseName;
   els.sliceBtn.disabled = true;
 
-  // 1) Parse on the device for an instant preview (and to convert 3MF/OBJ).
+  // 1) Parse on the device for an instant preview (and to convert 3MF/OBJ), then
+  //    ADD it as a new object on the bed (existing parts stay).
   let rawGeometry;
   try {
     rawGeometry = await parseModel(file);
-    state.rawGeometry = rawGeometry;
-    state.baseGeometry = rawGeometry.clone(); // pristine copy for effects/clear
-    // Fresh paint map for the new mesh (one entry per triangle, base by default).
-    state.paintMap = new Int8Array(rawGeometry.getAttribute('position').count / 3);
-    state.hasPaint = false;
-    state.topology = null; // adjacency/normals cache is per-model
-    rebuildOriented();
-    userOrbited = false; // re-frame the fresh model, then hand control back
-    frameView();
+    addObject(rawGeometry, baseName); // sets up state.* + builds the mesh
+    els.modelName.textContent = state.objects.length > 1 ? `${state.objects.length} parts` : file.name;
+    if (state.objects.length === 1) { userOrbited = false; frameView(); } // frame the first part
     updatePaintUI();
   } catch (err) {
     log(`Could not read model: ${err.message}`, 'err');
     return;
   }
 
-  // 2) Upload for slicing. STL goes as-is; 3MF/OBJ are exported to STL here so
-  //    the backend's STL pipeline (transform + slice) works for every format.
+  // 2) Upload this part for slicing. STL goes as-is; 3MF/OBJ are exported to STL
+  //    here so the backend's STL pipeline (transform + slice) works for every
+  //    format. The serverName lands on the just-added (selected) object.
   try {
     const form = new FormData();
     const ext = file.name.split('.').pop().toLowerCase();
@@ -930,11 +1163,25 @@ els.fileInput.addEventListener('change', async (e) => {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     state.serverName = data.name;
+    const o = state.objects[state.sel]; if (o) o.serverName = data.name;
     els.sliceBtn.disabled = false;
     log(`Uploaded ${data.originalName} (${(data.size / 1024).toFixed(0)} KB).`, 'ok');
   } catch (err) {
     log(`Upload failed: ${err.message}`, 'err');
   }
+  // allow re-selecting the same file again later
+  e.target.value = '';
+});
+
+// Multi-object editor buttons.
+els.cloneBtn.addEventListener('click', () => {
+  cloneSelectedObject();
+  els.modelName.textContent = state.objects.length > 1 ? `${state.objects.length} parts` : (state.baseName || 'no model');
+});
+els.arrangeBtn.addEventListener('click', autoArrange);
+els.deleteBtn.addEventListener('click', () => {
+  deleteSelectedObject();
+  els.modelName.textContent = state.objects.length > 1 ? `${state.objects.length} parts` : (state.objects.length === 1 ? state.baseName : 'no model');
 });
 
 // ─── Sliders (each paired with a typeable number box) ────────
@@ -967,19 +1214,35 @@ els.resetBtn.addEventListener('click', () => {
 
 // ─── Slice ───────────────────────────────────────────────────
 els.sliceBtn.addEventListener('click', async () => {
-  if (!state.serverName) return;
+  if (!state.objects.length) return;
   els.sliceBtn.disabled = true;
   els.sliceBtn.textContent = 'Slicing…';
   log('Requesting slice…');
 
   try {
-    // Layer painting clips the mesh — re-upload it so the server slices the
-    // exact triangles the paint map is keyed to.
-    if (state.meshDirty) { log('Uploading painted mesh…'); await uploadCurrentMesh(); }
+    let body;
+    if (state.objects.length > 1) {
+      // Multi-part: bake every object (its rotation, scale, bed position) into a
+      // single STL in the slicer's Z-up frame, upload it, and slice with a
+      // neutral transform — the placement is already in the geometry.
+      log(`Merging ${state.objects.length} parts…`);
+      saveSelectedObject();
+      const name = await uploadMergedObjects();
+      body = sliceBody();
+      body.name = name;
+      body.posX = state.bed.x / 2; body.posY = state.bed.y / 2;
+      body.rotX = 0; body.rotY = 0; body.rotZ = 0; body.scalePercent = 100;
+      delete body.paintMap; // per-triangle paint maps don't survive the merge
+    } else {
+      // Layer painting clips the mesh — re-upload it so the server slices the
+      // exact triangles the paint map is keyed to.
+      if (state.meshDirty) { log('Uploading painted mesh…'); await uploadCurrentMesh(); }
+      body = sliceBody();
+    }
     const res = await fetch('/api/slice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sliceBody()),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Slice failed');
@@ -1627,7 +1890,14 @@ els.printBtn.addEventListener('click', async () => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Send failed');
-    log(data.started ? '🖨️ Print started on the printer!' : '✅ Uploaded to printer.', 'ok');
+    if (data.started) {
+      log('🖨️ Print started on the printer!', 'ok');
+    } else if (data.needsPanel && data.message) {
+      // CC1 staged the file but wants you to confirm Side A/B + Print on the panel.
+      log(`📲 ${data.message}`, 'ok');
+    } else {
+      log('✅ Uploaded to printer.', 'ok');
+    }
   } catch (err) {
     log(`❌ ${err.message}`, 'err');
   } finally {

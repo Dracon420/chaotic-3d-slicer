@@ -36,9 +36,17 @@
           <div class="row">
             <label class="file-btn">
               <input id="fileInput" type="file" accept=".stl,.obj,.3mf" hidden />
-              <span>＋ Load model</span>
+              <span>＋ Add model</span>
             </label>
             <span id="modelName" class="model-name">no model</span>
+            <span id="objCount" class="model-name" style="margin-left:auto;color:var(--accent)"></span>
+          </div>
+
+          <div id="objectList" class="object-list" hidden></div>
+          <div class="row row--objacts">
+            <button id="cloneBtn" class="btn btn--ghost btn--sm">⧉ Clone</button>
+            <button id="arrangeBtn" class="btn btn--ghost btn--sm">▦ Auto-arrange</button>
+            <button id="deleteBtn" class="btn btn--ghost btn--sm">✕ Remove</button>
           </div>
 
           <div class="row">

@@ -662,9 +662,24 @@ app.post('/api/print', async (req, res) => {
       emit('print:uploaded', { fileName });
       if (start) {
         onLog('Upload complete — starting print…');
-        const { ack } = await printer.startPrint({ host: p.host, mainboardId: p.mainboardId, fileName, onLog });
-        emit('print:done', { started: true, ack });
-        return res.json({ success: true, started: true, ack });
+        try {
+          const { ack } = await printer.startPrint({ host: p.host, mainboardId: p.mainboardId, fileName, onLog });
+          emit('print:done', { started: true, ack });
+          return res.json({ success: true, started: true, ack });
+        } catch (e) {
+          // The CC1 stages the file and opens its print screen, but won't
+          // auto-start remotely (returns a non-zero Ack) — it wants you to
+          // pick the bed side (Side A/B) and tap Print on the panel. The file
+          // IS on the printer, so this is a success, not an error.
+          const m = /Ack\s+(\d+)/.exec(e.message || '');
+          if (m) {
+            const msg = `“${fileName}” is loaded on the printer. On the CC1 screen, pick the bed side (Side A / Side B) and tap Print to start. (The printer declined a remote auto‑start — Ack ${m[1]}.)`;
+            onLog(msg);
+            emit('print:done', { started: false, uploaded: true, needsPanel: true, message: msg });
+            return res.json({ success: true, started: false, uploaded: true, needsPanel: true, message: msg });
+          }
+          throw e;
+        }
       }
     }
 
