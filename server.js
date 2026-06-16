@@ -661,9 +661,15 @@ app.post('/api/print', async (req, res) => {
       await printer.uploadFile({ host: p.host, filePath: gcodePath, fileName, onLog });
       emit('print:uploaded', { fileName });
       if (start) {
+        // Cmd 128 (start) is addressed to the board's real MainboardID. A CC1
+        // found by network scan (rather than the slicer config) may have a
+        // wrong id saved, which the printer rejects with Ack 2. Read the live
+        // id straight off the printer so the start always matches.
+        let mbId = p.mainboardId;
+        try { const live = await printer.discoverSdcp(p.host); if (live) mbId = live; } catch { /* fall back to stored id */ }
         onLog('Upload complete — starting print…');
         try {
-          const { ack } = await printer.startPrint({ host: p.host, mainboardId: p.mainboardId, fileName, onLog });
+          const { ack } = await printer.startPrint({ host: p.host, mainboardId: mbId, fileName, onLog });
           emit('print:done', { started: true, ack });
           return res.json({ success: true, started: true, ack });
         } catch (e) {
