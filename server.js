@@ -365,12 +365,19 @@ app.post('/api/slice', async (req, res) => {
       modelPath = mfPath;
       const colours = new Set(paintMap.filter((v) => v > 0)).size;
       log('stdout', `Built painted 3MF: base + ${colours} painted colour(s).`);
-    } else if (canvas && tray !== null) {
+    } else if (canvas && tray !== null && tray > 0) {
       const mfPath = path.join(jobDir, `${base}.3mf`);
       const buf = await buildThreeMF(bakedStl, { extruder: tray + 1, name: base });
       fs.writeFileSync(mfPath, buf);
       modelPath = mfPath;
       log('stdout', `Built 3MF project: object on filament slot #${tray + 1} (T${tray}).`);
+    } else if (canvas /* tray 0 or none */) {
+      // Slot #1 = tool T0 = the default filament for a plain STL, so no 3MF is
+      // needed — and skipping it slices the model directly (exactly like the
+      // desktop slicer), avoiding the "other vendor / split as instance" 3MF
+      // import path that mangles multi-shell models like flexi prints. The
+      // Canvas load macro (M6211) still comes from the machine preset.
+      log('stdout', 'Slot #1 (T0): slicing the model directly — no 3MF wrapper.');
     }
 
     // 2) Slice with the verified ElegooSlicer CLI recipe.
