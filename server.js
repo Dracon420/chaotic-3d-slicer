@@ -281,6 +281,8 @@ app.post('/api/slice', async (req, res) => {
     support_bottom_z_distance: (v) => String(parseFloat(v)),
     brim_type: (v) => String(v),
     brim_width: (v) => String(parseFloat(v)),
+    skirt_loops: (v) => String(parseInt(v, 10)),
+    skirt_height: (v) => String(parseInt(v, 10)),
     enable_prime_tower: (v) => (v ? '1' : '0'),
     prime_tower_width: (v) => String(parseFloat(v)),
   };

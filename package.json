@@ -1,6 +1,6 @@
 {
   "name": "elegoo-slicer-phone-app",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "Self-hosted PWA to arrange and slice 3D models from your phone using your Windows PC's Elegoo/Orca slicer backend.",
   "private": true,
   "main": "desktop/main.js",

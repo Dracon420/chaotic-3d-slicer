@@ -72,6 +72,12 @@ const els = {
   scaleOut: $('#scaleOut'),
   sliceBtn: $('#sliceBtn'),
   resetBtn: $('#resetBtn'),
+  previewBtn: $('#previewBtn'),
+  previewBar: $('#previewBar'),
+  previewClose: $('#previewClose'),
+  previewLayer: $('#previewLayer'),
+  previewLayerLbl: $('#previewLayerLbl'),
+  previewLegend: $('#previewLegend'),
   sliceStats: $('#sliceStats'),
   statTime: $('#statTime'),
   statWeight: $('#statWeight'),
@@ -137,6 +143,8 @@ const els = {
   setSupportTopZ: $('#setSupportTopZ'),
   setSupportBottomZ: $('#setSupportBottomZ'),
   setBrim: $('#setBrim'),
+  setSkirtLoops: $('#setSkirtLoops'),
+  setSkirtHeight: $('#setSkirtHeight'),
   setPrimeTower: $('#setPrimeTower'),
   setPrimeTowerWidth: $('#setPrimeTowerWidth'),
 };
@@ -1111,7 +1119,7 @@ function bedPointAt(clientX, clientY) {
 // Capture phase so this runs BEFORE OrbitControls' own pointerdown — that lets
 // us disable orbit for this gesture when a part is grabbed.
 els.canvas.addEventListener('pointerdown', (e) => {
-  if (state.view !== 'slicer' || !state.objects.length) return;
+  if (state.view !== 'slicer' || !state.objects.length || state.previewActive) return;
   const idx = pickObjectIndex(e.clientX, e.clientY);
   if (idx < 0) return; // empty space -> let the view orbit
   selectObject(idx);
@@ -1361,6 +1369,8 @@ els.sliceBtn.addEventListener('click', async () => {
     state.lastGcode = { gcode: data.gcode, url: data.url };
     els.printBtn.disabled = !els.printerSel.value;
     renderSliceStats(data.stats);
+    hidePreview(); // any open preview is now stale
+    els.previewBtn.hidden = false; // offer to view the new slice
   } catch (err) {
     log(`❌ ${err.message}`, 'err');
   } finally {
@@ -1368,6 +1378,156 @@ els.sliceBtn.addEventListener('click', async () => {
     els.sliceBtn.textContent = 'Slice ▶';
   }
 });
+
+// ─── Sliced G-code preview ───────────────────────────────────
+// Parse the sliced gcode's toolpaths and draw them as coloured line segments,
+// so you can inspect walls / infill / supports / brim / skirt before printing.
+const GCODE_TYPE_COLORS = {
+  'Outer wall': '#f97316',
+  'Inner wall': '#22c55e',
+  'Overhang wall': '#ef4444',
+  'Bridge': '#06b6d4',
+  'Top surface': '#f59e0b',
+  'Bottom surface': '#b45309',
+  'Internal solid infill': '#ca8a04',
+  'Sparse infill': '#eab308',
+  'Gap infill': '#84cc16',
+  'Support': '#3b82f6',
+  'Support interface': '#60a5fa',
+  'Brim': '#ec4899',
+  'Skirt': '#94a3b8',
+  'Prime tower': '#a855f7',
+};
+const GCODE_DEFAULT_COLOR = '#9aa4b2';
+const gcodeColorFor = (t) => GCODE_TYPE_COLORS[t] || GCODE_DEFAULT_COLOR;
+
+// Parse gcode text -> world-space extrusion segments grouped per layer.
+function parseGcodePreview(text) {
+  const bx = state.bed.x, by = state.bed.y;
+  let x = 0, y = 0, z = 0, lastE = 0;
+  let absXYZ = true, absE = false; // OrcaSlicer default: G90 absolute XYZ, M83 relative E
+  let curType = 'default';
+  const segPos = [], segCol = [];
+  const layerEnds = []; // cumulative segment count at the end of each layer
+  let segCount = 0, started = false;
+  const seen = new Set();
+  const _c = new THREE.Color();
+  const lines = text.split('\n');
+  for (let li = 0; li < lines.length; li++) {
+    let line = lines[li];
+    if (!line) continue;
+    if (line.charCodeAt(0) === 59 /* ; */) {
+      const t = line.slice(1).trim();
+      if (t.startsWith('TYPE:')) curType = t.slice(5).trim();
+      else if (t.startsWith('LAYER_CHANGE') || t.startsWith('CHANGE_LAYER')) {
+        if (started) layerEnds.push(segCount);
+        started = true;
+      }
+      continue;
+    }
+    const ci = line.indexOf(';'); if (ci >= 0) line = line.slice(0, ci);
+    if (line.length < 2) continue;
+    const head = line.slice(0, 3).toUpperCase();
+    if (head === 'G90') { absXYZ = true; continue; }
+    if (head === 'G91') { absXYZ = false; continue; }
+    if (head === 'M82') { absE = true; continue; }
+    if (head === 'M83') { absE = false; continue; }
+    if (line.charCodeAt(0) !== 71 /* G */) continue;
+    if (!(head === 'G1 ' || head === 'G0 ' || head === 'G1' || head === 'G0')) continue;
+    let nx = x, ny = y, nz = z, ne = null;
+    const parts = line.split(' ');
+    for (let pi = 1; pi < parts.length; pi++) {
+      const p = parts[pi]; if (!p) continue;
+      const v = +p.slice(1);
+      switch (p[0]) {
+        case 'X': case 'x': nx = absXYZ ? v : x + v; break;
+        case 'Y': case 'y': ny = absXYZ ? v : y + v; break;
+        case 'Z': case 'z': nz = absXYZ ? v : z + v; break;
+        case 'E': case 'e': ne = v; break;
+      }
+    }
+    let extruding = false;
+    if (ne !== null) {
+      if (absE) { extruding = ne > lastE + 1e-6; lastE = ne; }
+      else { extruding = ne > 1e-6; }
+    }
+    if (extruding && (nx !== x || ny !== y)) {
+      segPos.push(x - bx / 2, z, by / 2 - y, nx - bx / 2, nz, by / 2 - ny);
+      _c.set(gcodeColorFor(curType));
+      segCol.push(_c.r, _c.g, _c.b, _c.r, _c.g, _c.b);
+      segCount++;
+      seen.add(curType);
+    }
+    x = nx; y = ny; z = nz;
+  }
+  if (started) layerEnds.push(segCount);
+  if (!layerEnds.length) layerEnds.push(segCount);
+  return { positions: new Float32Array(segPos), colors: new Float32Array(segCol), layerEnds, types: seen };
+}
+
+let previewMesh = null, previewData = null;
+
+async function showPreview() {
+  if (!state.lastGcode) return;
+  els.previewBtn.disabled = true;
+  els.previewBtn.textContent = 'Loading preview…';
+  try {
+    const text = await (await fetch(state.lastGcode.url)).text();
+    previewData = parseGcodePreview(text);
+    if (previewMesh) { scene.remove(previewMesh); previewMesh.geometry.dispose(); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(previewData.positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(previewData.colors, 3));
+    previewMesh = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true }));
+    scene.add(previewMesh);
+    modelGroup.visible = false;
+    if (selectionBox) selectionBox.visible = false;
+    state.previewActive = true;
+    const n = previewData.layerEnds.length || 1;
+    els.previewLayer.min = 1; els.previewLayer.max = n; els.previewLayer.value = n;
+    setPreviewLayer(n);
+    buildPreviewLegend(previewData.types);
+    els.previewBar.hidden = false;
+    userOrbited = false; frameView();
+  } catch (e) {
+    log(`Could not build preview: ${e.message}`, 'err');
+  } finally {
+    els.previewBtn.disabled = false;
+    els.previewBtn.textContent = '👁 View sliced preview';
+  }
+}
+
+function setPreviewLayer(L) {
+  if (!previewData || !previewMesh) return;
+  const ends = previewData.layerEnds;
+  const idx = Math.max(0, Math.min(ends.length - 1, L - 1));
+  previewMesh.geometry.setDrawRange(0, ends[idx] * 2);
+  els.previewLayerLbl.textContent = `Layer ${L} / ${ends.length}`;
+}
+
+function buildPreviewLegend(types) {
+  els.previewLegend.innerHTML = '';
+  for (const t of Object.keys(GCODE_TYPE_COLORS)) {
+    if (!types.has(t)) continue;
+    const item = document.createElement('span');
+    item.className = 'preview-legend__item';
+    item.innerHTML = `<span class="preview-legend__dot" style="background:${gcodeColorFor(t)}"></span>${t}`;
+    els.previewLegend.appendChild(item);
+  }
+}
+
+function hidePreview() {
+  if (previewMesh) { scene.remove(previewMesh); previewMesh.geometry.dispose(); previewMesh = null; }
+  previewData = null;
+  state.previewActive = false;
+  modelGroup.visible = true;
+  if (selectionBox) selectionBox.visible = true;
+  els.previewBar.hidden = true;
+}
+
+els.previewBtn.addEventListener('click', showPreview);
+els.previewClose.addEventListener('click', hidePreview);
+els.previewLayer.addEventListener('input', () => setPreviewLayer(+els.previewLayer.value));
 
 // Capture a 144x144 PNG for the printer icon by snapshotting the MAIN viewport
 // (a separate offscreen WebGL renderer rendered blank on mobile). Hides the bed,
@@ -1487,6 +1647,8 @@ function sliceBody() {
   if (els.setSupportTopZ.value !== '') ps.support_top_z_distance = +els.setSupportTopZ.value;
   if (els.setSupportBottomZ.value !== '') ps.support_bottom_z_distance = +els.setSupportBottomZ.value;
   if (els.setBrim.value) ps.brim_type = els.setBrim.value;
+  if (els.setSkirtLoops.value !== '') ps.skirt_loops = +els.setSkirtLoops.value;
+  if (els.setSkirtHeight.value !== '') ps.skirt_height = +els.setSkirtHeight.value;
   // Prime/wipe tower only matters for multi-colour (painted) jobs.
   if (body.paintMap && body.paintMap.length) {
     ps.enable_prime_tower = els.setPrimeTower.checked;
@@ -1741,6 +1903,7 @@ function showView(name) {
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('tab--active', t.dataset.view === name)
   );
+  if (name !== 'slicer' && state.previewActive) hidePreview(); // the overlay is slicer-only
   applyPaintControlState(); // orbit on everywhere except Brush/Face on the Paint tab
   if (name === 'paint') updatePaintUI();
   // Switching into/out of Paint changes whether we show tray colours.
@@ -1863,6 +2026,8 @@ function collectSettings() {
     supportTopZ: els.setSupportTopZ.value,
     supportBottomZ: els.setSupportBottomZ.value,
     brim: els.setBrim.value,
+    skirtLoops: els.setSkirtLoops.value,
+    skirtHeight: els.setSkirtHeight.value,
     primeTower: els.setPrimeTower.checked,
     primeTowerWidth: els.setPrimeTowerWidth.value,
   };
@@ -1877,6 +2042,7 @@ function applySettings(s) {
   els.setSupports.checked = !!s.supports;
   set(els.setSupportType, s.supportType); set(els.setSupportTopZ, s.supportTopZ); set(els.setSupportBottomZ, s.supportBottomZ);
   set(els.setBrim, s.brim);
+  set(els.setSkirtLoops, s.skirtLoops); set(els.setSkirtHeight, s.skirtHeight);
   els.setPrimeTower.checked = s.primeTower !== false;
   set(els.setPrimeTowerWidth, s.primeTowerWidth);
 }

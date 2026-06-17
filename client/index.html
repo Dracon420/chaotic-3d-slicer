@@ -22,6 +22,16 @@
       <!-- 3D viewport (only shown on the Slicer tab) -->
       <canvas id="viewport"></canvas>
 
+      <!-- G-code preview overlay (shown while viewing a sliced preview) -->
+      <div id="previewBar" class="preview-bar" hidden>
+        <div class="preview-bar__top">
+          <button id="previewClose" class="mini-btn">✕ Close preview</button>
+          <span id="previewLayerLbl" class="preview-bar__lbl">Layer —</span>
+        </div>
+        <input id="previewLayer" type="range" min="1" max="1" value="1" />
+        <div id="previewLegend" class="preview-legend"></div>
+      </div>
+
       <!-- Top bar -->
       <header id="topbar">
         <span class="brand">🧊 Chaotic 3D Slicer</span>
@@ -108,6 +118,8 @@
             <div class="slice-stat"><span class="slice-stat__icon">⚖</span><span id="statWeight" class="slice-stat__val">—</span><span class="slice-stat__lbl">filament</span></div>
             <div class="slice-stat"><span class="slice-stat__icon">📑</span><span id="statLayers" class="slice-stat__val">—</span><span class="slice-stat__lbl">layers</span></div>
           </div>
+
+          <button id="previewBtn" class="btn btn--ghost btn--wide" hidden>👁 View sliced preview</button>
 
           <div class="row row--print" id="printRow" hidden>
             <select id="printerSel" class="printer-sel"></select>
@@ -308,6 +320,15 @@
               <option value="brim_ears">Brim ears</option>
             </select>
           </label>
+          <div class="field-row">
+            <label class="field"><span>Skirt lines (0 = off)</span>
+              <input id="setSkirtLoops" type="number" min="0" max="10" step="1" placeholder="preset" inputmode="numeric" />
+            </label>
+            <label class="field"><span>Skirt height (layers)</span>
+              <input id="setSkirtHeight" type="number" min="1" max="50" step="1" placeholder="preset" inputmode="numeric" />
+            </label>
+          </div>
+          <p class="hint">A skirt primes the nozzle with a loop around the print. More lines = better priming; more height (layers) makes it a taller wall that peels off in one piece.</p>
         </div>
 
         <div class="group">
