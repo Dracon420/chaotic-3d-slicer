@@ -937,23 +937,22 @@ input[type='text'] {
 .row--objacts .btn--sm { flex: 1; }
 .btn--sm { padding: 7px 8px; font-size: 12.5px; }
 
-/* ── Slider lock + per-slider reset ────────────────────────── */
-.lock-btn { width: 100%; margin: 4px 0 8px; }
-.lock-btn--open { color: var(--accent, #2f81f7); border-color: var(--accent, #2f81f7); }
-input[type="range"]:disabled { opacity: 0.45; cursor: not-allowed; }
+/* ── Per-slider lock + reset ───────────────────────────────── */
+input[type="range"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .control__label { position: relative; }
-.slider-reset {
-  margin-left: 8px;
+.slider-tools { display: inline-flex; gap: 6px; margin-left: 8px; align-items: center; }
+.slider-lock, .slider-reset {
   border: 1px solid var(--border, #283039);
   background: transparent;
   color: var(--muted, #8b949e);
   border-radius: 6px;
   font-size: 13px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: 3px 7px;
   cursor: pointer;
 }
-.slider-reset:hover { color: var(--accent, #2f81f7); border-color: var(--accent, #2f81f7); }
+.slider-lock:hover, .slider-reset:hover { color: var(--accent, #2f81f7); border-color: var(--accent, #2f81f7); }
+.slider-lock--open { border-color: var(--accent, #2f81f7); }
 
 /* ── Paint-page part selector ──────────────────────────────── */
 .paint-objbar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }

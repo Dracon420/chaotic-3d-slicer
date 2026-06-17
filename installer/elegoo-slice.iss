@@ -12,7 +12,7 @@
 ; slicer is found, pointing the user to install one.
 
 #define MyAppName "Chaotic 3D Slicer"
-#define MyAppVersion "1.0.5"
+#define MyAppVersion "1.0.6"
 #define MyAppPublisher "Chaotic 3D"
 #define MyAppExe "Chaotic 3D Slicer.exe"
 #define SrcDir "..\dist\win-unpacked"

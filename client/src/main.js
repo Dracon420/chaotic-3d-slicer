@@ -55,7 +55,6 @@ const els = {
   cloneBtn: $('#cloneBtn'),
   arrangeBtn: $('#arrangeBtn'),
   deleteBtn: $('#deleteBtn'),
-  lockBtn: $('#lockBtn'),
   objectListPaint: $('#objectListPaint'),
   paintObjectBar: $('#paintObjectBar'),
   saveName: $('#saveName'),
@@ -1078,6 +1077,58 @@ els.canvas.addEventListener('pointermove', (e) => {
 });
 window.addEventListener('pointerup', () => { painting = false; });
 
+// ─── Slicer view: tap a part to select it, drag it to reposition ──
+// Like a desktop slicer. A tap that hits a part selects it; dragging slides it
+// across the bed. A tap on empty space falls through to orbit (rotate the view).
+let dragging = null;
+const bedPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function ndcAt(clientX, clientY) {
+  const rect = els.canvas.getBoundingClientRect();
+  return new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+}
+function pickObjectIndex(clientX, clientY) {
+  raycaster.setFromCamera(ndcAt(clientX, clientY), camera);
+  const meshes = state.objects.map((o) => o.mesh).filter(Boolean);
+  const hit = raycaster.intersectObjects(meshes, false)[0];
+  return hit ? state.objects.findIndex((o) => o.mesh === hit.object) : -1;
+}
+function bedPointAt(clientX, clientY) {
+  raycaster.setFromCamera(ndcAt(clientX, clientY), camera);
+  const p = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(bedPlane, p)) return null;
+  return { bx: p.x + state.bed.x / 2, by: state.bed.y / 2 - p.z };
+}
+// Capture phase so this runs BEFORE OrbitControls' own pointerdown — that lets
+// us disable orbit for this gesture when a part is grabbed.
+els.canvas.addEventListener('pointerdown', (e) => {
+  if (state.view !== 'slicer' || !state.objects.length) return;
+  const idx = pickObjectIndex(e.clientX, e.clientY);
+  if (idx < 0) return; // empty space -> let the view orbit
+  selectObject(idx);
+  const bp = bedPointAt(e.clientX, e.clientY);
+  const o = state.objects[idx];
+  dragging = { idx, dx: bp ? o.tf.posX - bp.bx : 0, dy: bp ? o.tf.posY - bp.by : 0 };
+  controls.enabled = false;
+}, true);
+els.canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  const bp = bedPointAt(e.clientX, e.clientY);
+  if (!bp) return;
+  const o = state.objects[dragging.idx];
+  const px = Math.max(0, Math.min(state.bed.x, bp.bx + dragging.dx));
+  const py = Math.max(0, Math.min(state.bed.y, bp.by + dragging.dy));
+  o.tf.posX = px; o.tf.posY = py;
+  o.mesh.position.set(bedToWorldX(px), 0, bedToWorldZ(py));
+  els.posX.value = px; els.posY.value = py;
+  setNum(els.posXOut, Math.round(px)); setNum(els.posYOut, Math.round(py));
+  updateSelectionBox();
+});
+window.addEventListener('pointerup', () => {
+  if (!dragging) return;
+  dragging = null;
+  controls.enabled = true;
+});
+
 // Mode selector (Rotate / Brush / Face / Effects).
 els.paintModes.addEventListener('click', (e) => {
   const btn = e.target.closest('.paint-mode');
@@ -1210,8 +1261,9 @@ bindNumber(els.rotZ, els.rotZOut, queueRebuild);
 
 // ─── Slider lock + per-slider reset ──────────────────────────
 // The transform sliders sit in a scrollable panel and are easy to bump while
-// scrolling on a phone. They start LOCKED (drag disabled) — the number box next
-// to each still takes precise input, and each slider gets a ⟲ reset button.
+// scrolling on a phone. Each one gets its OWN 🔒 lock (starts locked so a stray
+// touch can't move it; the number box beside it still takes precise input) plus
+// a ⟲ reset — both injected right into that slider's label row.
 const transformSliders = () => [
   { s: els.posX, o: els.posXOut, def: () => state.bed.x / 2, onChange: applyTransform },
   { s: els.posY, o: els.posYOut, def: () => state.bed.y / 2, onChange: applyTransform },
@@ -1220,24 +1272,26 @@ const transformSliders = () => [
   { s: els.rotZ, o: els.rotZOut, def: () => 0, onChange: queueRebuild },
   { s: els.scale, o: els.scaleOut, def: () => 100, onChange: applyTransform },
 ];
-let slidersLocked = true;
-function applyLock() {
-  for (const { s } of transformSliders()) s.disabled = slidersLocked;
-  els.lockBtn.textContent = slidersLocked ? '🔒 Sliders locked — tap to unlock' : '🔓 Sliders unlocked — tap to lock';
-  els.lockBtn.classList.toggle('lock-btn--open', !slidersLocked);
-}
-els.lockBtn.addEventListener('click', () => { slidersLocked = !slidersLocked; applyLock(); });
-// Inject a ⟲ reset button into each transform control's label (works even when
-// the slider itself is locked).
 for (const cfg of transformSliders()) {
   const label = cfg.s.parentElement.querySelector('.control__label');
-  if (!label || label.querySelector('.slider-reset')) continue;
-  const b = document.createElement('button');
-  b.className = 'slider-reset'; b.type = 'button'; b.textContent = '⟲'; b.title = 'Reset this slider';
-  b.addEventListener('click', () => { const d = cfg.def(); cfg.s.value = d; setNum(cfg.o, d); cfg.onChange(); });
-  label.appendChild(b);
+  if (!label || label.querySelector('.slider-tools')) continue;
+  cfg.s.disabled = true; // start locked
+  const tools = document.createElement('span');
+  tools.className = 'slider-tools';
+  const lock = document.createElement('button');
+  lock.className = 'slider-lock'; lock.type = 'button'; lock.textContent = '🔒'; lock.title = 'Locked — tap to unlock this slider';
+  lock.addEventListener('click', () => {
+    cfg.s.disabled = !cfg.s.disabled;
+    lock.textContent = cfg.s.disabled ? '🔒' : '🔓';
+    lock.title = cfg.s.disabled ? 'Locked — tap to unlock this slider' : 'Unlocked — tap to lock';
+    lock.classList.toggle('slider-lock--open', !cfg.s.disabled);
+  });
+  const reset = document.createElement('button');
+  reset.className = 'slider-reset'; reset.type = 'button'; reset.textContent = '⟲'; reset.title = 'Reset this slider';
+  reset.addEventListener('click', () => { const d = cfg.def(); cfg.s.value = d; setNum(cfg.o, d); cfg.onChange(); });
+  tools.appendChild(lock); tools.appendChild(reset);
+  label.appendChild(tools);
 }
-applyLock();
 
 // Quick 90° tilt buttons — snap a face toward the bed.
 for (const btn of document.querySelectorAll('.snap-btn')) {
