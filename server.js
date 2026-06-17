@@ -25,7 +25,7 @@ const { Server } = require('socket.io');
 const { transformSTL } = require('./lib/stl');
 const { buildThreeMF } = require('./lib/threemf');
 const { slice } = require('./lib/slicer');
-const { injectThumbnails } = require('./lib/gcode');
+const { injectThumbnails, repointTool } = require('./lib/gcode');
 const printer = require('./lib/printer');
 const bambu = require('./lib/bambu');
 const { createStore } = require('./lib/store');
@@ -357,27 +357,30 @@ app.post('/api/slice', async (req, res) => {
     //     1-based). Slicing this 3MF emits a consistent multi-filament gcode
     //     (T<tray> + filament_used on that index), exactly like ElegooSlicer.
     let modelPath = bakedStl;
+    let repointTray = null; // single-colour on a non-zero slot -> repoint after slicing
     if (canvas && hasPaint) {
-      // Multi-colour: base = tray 0 (extruder 1); painted faces -> their trays.
+      // Multi-colour (painted): the per-triangle filament assignment can only
+      // live in a 3MF, so this case still wraps the mesh. base = tray 0
+      // (extruder 1); painted faces -> their trays.
       const mfPath = path.join(jobDir, `${base}.3mf`);
       const buf = await buildThreeMF(bakedStl, { extruder: 1, name: base, paintByTriangle: paintMap });
       fs.writeFileSync(mfPath, buf);
       modelPath = mfPath;
       const colours = new Set(paintMap.filter((v) => v > 0)).size;
       log('stdout', `Built painted 3MF: base + ${colours} painted colour(s).`);
-    } else if (canvas && tray !== null && tray > 0) {
-      const mfPath = path.join(jobDir, `${base}.3mf`);
-      const buf = await buildThreeMF(bakedStl, { extruder: tray + 1, name: base });
-      fs.writeFileSync(mfPath, buf);
-      modelPath = mfPath;
-      log('stdout', `Built 3MF project: object on filament slot #${tray + 1} (T${tray}).`);
-    } else if (canvas /* tray 0 or none */) {
-      // Slot #1 = tool T0 = the default filament for a plain STL, so no 3MF is
-      // needed — and skipping it slices the model directly (exactly like the
-      // desktop slicer), avoiding the "other vendor / split as instance" 3MF
-      // import path that mangles multi-shell models like flexi prints. The
-      // Canvas load macro (M6211) still comes from the machine preset.
-      log('stdout', 'Slot #1 (T0): slicing the model directly — no 3MF wrapper.');
+    } else if (canvas) {
+      // SINGLE-COLOUR on ANY slot: always slice the placed STL directly — exactly
+      // like the desktop slicer. This is reliable for multi-shell models (flexi
+      // prints) that the generated 3MF's "other vendor / split as instance"
+      // import path can mangle. The CLI emits the object on T0; for a non-zero
+      // slot we then repoint the finished gcode's tool to T<tray> so the Canvas
+      // feeds that tray (the declared filament temps already match the tray).
+      if (tray && tray > 0) {
+        repointTray = tray;
+        log('stdout', `Slot #${tray + 1}: slicing directly, then routing to Canvas tray T${tray}.`);
+      } else {
+        log('stdout', 'Slot #1 (T0): slicing the model directly.');
+      }
     }
 
     // 2) Slice with the verified ElegooSlicer CLI recipe.
@@ -397,6 +400,14 @@ app.post('/api/slice', async (req, res) => {
       outDir: jobDir,
       onLog: log,
     });
+
+    // 2a) Single-colour on a non-zero slot: repoint the directly-sliced T0 job
+    //     to T<tray> so the Canvas feeds the chosen tray.
+    if (repointTray) {
+      const { gcode: rg, changed } = repointTool(fs.readFileSync(gcodePath, 'utf8'), repointTray);
+      fs.writeFileSync(gcodePath, rg);
+      log('stdout', `Routed to Canvas tray #${repointTray + 1} (T${repointTray}) — ${changed} tool line(s) updated.`);
+    }
 
     // 2b) Canvas sanity check: the gcode MUST contain the M6211 load macro, or
     //     the Canvas will feed nothing. Its absence means a non-CC2 machine

@@ -184,12 +184,19 @@ scene.add(bedGroup);
 const modelGroup = new THREE.Group();
 scene.add(modelGroup);
 
+const MODEL_DEFAULT_COLOR = 0x2f81f7;
 const modelMaterial = new THREE.MeshStandardMaterial({
-  color: 0x2f81f7,
+  color: MODEL_DEFAULT_COLOR,
   metalness: 0.15,
   roughness: 0.55,
   flatShading: false,
 });
+
+// Tint the (unpainted) model preview to a chosen Canvas slot colour, so picking
+// a slot visibly recolours the model on the bed. Pass null to revert to default.
+function tintModelToColor(hex) {
+  modelMaterial.color.set(hex || MODEL_DEFAULT_COLOR);
+}
 
 // Used when a multi-colour paint map exists — shows each face in its tray colour.
 const paintMaterial = new THREE.MeshStandardMaterial({
@@ -1642,6 +1649,8 @@ function renderPrinterCards() {
 async function loadFilament() {
   const opt = els.printerSel.selectedOptions[0];
   state.selectedTray = null;
+  state.selectedTrayInfo = null;
+  tintModelToColor(null); // revert preview tint when leaving / re-syncing CC2
   if (!opt || opt.dataset.protocol !== 'mqtt') {
     els.filamentBar.hidden = true;
     return;
@@ -1684,6 +1693,7 @@ function renderSlots(trays) {
         [...els.filamentSlots.children].forEach((c) => c.classList.remove('selected'));
         chip.classList.add('selected');
         autoSelectFilament(t); // so the slice declares a filament matching this tray
+        tintModelToColor(t.color); // recolour the model preview to this slot
       });
     }
     els.filamentSlots.appendChild(chip);
