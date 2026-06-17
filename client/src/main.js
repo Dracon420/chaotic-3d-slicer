@@ -2147,12 +2147,17 @@ els.printBtn.addEventListener('click', async () => {
   // the FULL 4-tray identity slot_map (gcode filament index t -> physical tray
   // t), not just the one used tray. The object is assigned (in the 3MF) to
   // filament index = the chosen tray, so identity routing pulls from that tray.
+  // Always send the full 4-tray identity slot_map for a CC2 — including painted
+  // (multi-colour) jobs, where no single slot is selected. Without it the Canvas
+  // can be left unmapped and never swaps filament (everything prints on the
+  // loaded tray). gcode filament index t -> physical tray t.
   let slotMap;
-  if (opt.dataset.protocol === 'mqtt' && state.selectedTray != null) {
+  if (opt.dataset.protocol === 'mqtt') {
     slotMap = [0, 1, 2, 3].map((i) => ({ canvas_id: 0, t: i, tray_id: i }));
   }
   const trayNote =
-    state.selectedTray != null ? `\nUsing Canvas slot #${state.selectedTray + 1}.` : '';
+    state.hasPaint ? '\nMulti-colour (painted) job — the Canvas will swap filament per the paint.'
+    : state.selectedTray != null ? `\nUsing Canvas slot #${state.selectedTray + 1}.` : '';
 
   if (!confirm(`Send "${state.lastGcode.gcode}" to ${opt.textContent} and START printing?${trayNote}\n\nMake sure the build plate is clear.`)) {
     return;
