@@ -24,7 +24,7 @@ const { Server } = require('socket.io');
 
 const { transformSTL } = require('./lib/stl');
 const { buildThreeMF } = require('./lib/threemf');
-const { slice } = require('./lib/slicer');
+const { slice, isSlicerRunning } = require('./lib/slicer');
 const { injectThumbnails, repointTool } = require('./lib/gcode');
 const printer = require('./lib/printer');
 const bambu = require('./lib/bambu');
@@ -323,6 +323,16 @@ app.post('/api/slice', async (req, res) => {
       'SLICER_FILAMENT_PRESET in .env to your saved ElegooSlicer preset JSON files.';
     emit('slice:error', { message: msg });
     return res.status(503).json({ error: msg });
+  }
+  // Safeguard: the slicer's headless CLI can't slice while its desktop GUI is
+  // open (the GUI holds the config) — the #1 cause of a failed slice. Detect it
+  // and stop with a clear instruction instead of crashing cryptically.
+  if (await isSlicerRunning(SLICER_PATH)) {
+    const msg =
+      'ElegooSlicer is open on the PC — its slicing engine can\'t run while the desktop app is. ' +
+      'Close the ElegooSlicer window (and quit it from the system tray if it\'s there), then slice again.';
+    emit('slice:error', { message: msg });
+    return res.status(409).json({ error: msg });
   }
 
   const modelBase = path.basename(name).replace(/\.[^.]+$/, '');

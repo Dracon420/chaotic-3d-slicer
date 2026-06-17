@@ -35,7 +35,8 @@ the other side of the world over Tailscale.
 | 🎨 **Multi-colour painting** | Brush, tap-to-fill-face, and Effects (clean layer change, interlocked seam, fade/gradient, stripes, rainbow, confetti, checkerboard) for the CC2's 4-slot Canvas; pick a Canvas slot to print single-colour in that tray (and the model preview recolours to match) |
 | 📤 **Network send** | Upload + start prints over the LAN: CC1 (SDCP), CC2 (MQTT incl. Canvas slot mapping), Bambu (LAN mode FTPS + MQTT) |
 | 🌍 **Remote slicing** | Works over [Tailscale](https://tailscale.com) — the HTTPS certificate covers your tailnet IP out of the box |
-| ⚙️ **Slicer-grade settings** | Machine / process / filament preset pickers, plate type, layer height, walls, infill, **normal & tree supports + top/bottom Z gap**, brim, prime tower, temperature overrides — plus save/load **settings profiles** |
+| ⚙️ **Slicer-grade settings** | Machine / process / filament preset pickers, plate type, layer height, walls, infill, **normal & tree supports + top/bottom Z gap**, brim, **skirt (lines + height)**, prime tower, temperature overrides — plus save/load **settings profiles** |
+| 👁 **Sliced preview** | After slicing, view the real **toolpaths in 3D** — colour-coded by feature (walls, infill, supports, brim, skirt…) with a per-layer scrub slider, so you can check the result before printing |
 | 🖨 **Printer manager** | Auto-discovers printers from your slicer config + LAN scan; add/remove printers manually (incl. Bambu serial + access code) |
 | 📊 **Print estimates** | Time / filament weight / layer count after every slice, plus a live job thumbnail embedded for the printer's screen |
 
@@ -84,7 +85,7 @@ Install [Tailscale](https://tailscale.com) on the PC and your phone, sign both i
 
 ## Using the app
 
-- **Slicer tab** — load one or more STL/OBJ/3MF models, drag the bed to orbit, **tap a part to select it and drag it to position** (or use the sliders / type exact numbers; each slider has a 🔒 lock so you can't bump it, and a ⟲ reset). **Clone**, **Remove** and **Auto-arrange** parts. Pick the target printer (presets auto-switch to match), Slice ▶, review time/filament/layers, Send ⤴.
+- **Slicer tab** — load one or more STL/OBJ/3MF models, drag the bed to orbit, **tap a part to select it and drag it to position** (or use the sliders / type exact numbers; each slider has a 🔒 lock so you can't bump it, and a ⟲ reset). **Clone**, **Remove** and **Auto-arrange** parts. Pick the target printer (presets auto-switch to match), Slice ▶, review time/filament/layers, **👁 View sliced preview** (3D toolpaths, colour-coded by feature, with a layer slider), then Send ⤴.
 - **Paint tab** (CC2 Canvas) — pick a tool:
   - 🔄 *Rotate* — orbit the view
   - ✏️ *Brush* — drag to paint faces
@@ -92,7 +93,7 @@ Install [Tailscale](https://tailscale.com) on the PC and your phone, sign both i
   - ✨ *Effects* — clean layer change at a height, interlocked seam, fade/gradient between two colours, stripes, rainbow bands, confetti, checkerboard — with size controls
   - The swatches mirror the **actual filaments loaded in your Canvas**, live from the printer.
 - **Printers tab** — scan the LAN, check live status, add a printer manually (for Bambu: IP + serial + LAN access code from the printer's screen), or remove one.
-- **Settings tab** — presets, plate type, quality/infill overrides, **supports (normal or tree, with top/bottom Z gap)**, brim, prime tower for multi-colour, temperature overrides, and **saved profiles** to switch whole setups in one tap.
+- **Settings tab** — presets, plate type, quality/infill overrides, **supports (normal or tree, with top/bottom Z gap)**, brim, **skirt (number of lines + how many layers tall)**, prime tower for multi-colour, temperature overrides, and **saved profiles** to switch whole setups in one tap.
 
 ---
 
@@ -107,7 +108,7 @@ The app isn't code-signed yet (a paid certificate), so a brand-new unsigned down
 
 ### A model won't slice (especially flexi / multi-part prints)
 
-**Close the ElegooSlicer window completely** (check the system tray) and slice again — its command-line engine can fail while the desktop GUI is holding the config.
+**Close the ElegooSlicer window completely** (check the system tray) and slice again — its command-line engine can fail while the desktop GUI is holding the config. The app now **detects this and warns you** ("ElegooSlicer is open…") instead of failing cryptically, but it's worth knowing: keep the desktop slicer closed while slicing from your phone.
 
 ### The phone offers "Add to Home screen" but not "Install"
 
