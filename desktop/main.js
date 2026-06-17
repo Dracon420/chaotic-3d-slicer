@@ -80,13 +80,27 @@ function showWindow() {
 }
 
 function trayIconPath() {
-  const p = path.join(__dirname, '..', 'client', 'public', 'icons', 'icon-192.png');
-  return fs.existsSync(p) ? p : undefined;
+  // In the packaged app `client/public` isn't bundled — only `client/dist` and
+  // `build/icon.ico` are. Check the packaged locations first (so the tray and
+  // window icons actually show), then the dev path.
+  const candidates = [
+    path.join(__dirname, '..', 'build', 'icon.ico'),
+    path.join(__dirname, '..', 'client', 'dist', 'icons', 'icon-192.png'),
+    path.join(__dirname, '..', 'client', 'public', 'icons', 'icon-192.png'),
+  ];
+  return candidates.find((p) => fs.existsSync(p));
 }
 
 function buildTray() {
   const img = trayIconPath();
-  tray = new Tray(img ? nativeImage.createFromPath(img).resize({ width: 16, height: 16 }) : nativeImage.createEmpty());
+  // Use a 16px image for the tray (Windows notification area size). An .ico is
+  // loaded then downscaled; PNG icons resize cleanly too.
+  let trayImg = nativeImage.createEmpty();
+  if (img) {
+    const base = nativeImage.createFromPath(img);
+    trayImg = base.isEmpty() ? base : base.resize({ width: 16, height: 16 });
+  }
+  tray = new Tray(trayImg);
   tray.setToolTip('Chaotic 3D Slicer — running');
   const menu = Menu.buildFromTemplate([
     { label: 'Open dashboard', click: showWindow },

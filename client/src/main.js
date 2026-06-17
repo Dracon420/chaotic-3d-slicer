@@ -133,6 +133,9 @@ const els = {
   infillOut: $('#infillOut'),
   setInfillPattern: $('#setInfillPattern'),
   setSupports: $('#setSupports'),
+  setSupportType: $('#setSupportType'),
+  setSupportTopZ: $('#setSupportTopZ'),
+  setSupportBottomZ: $('#setSupportBottomZ'),
   setBrim: $('#setBrim'),
   setPrimeTower: $('#setPrimeTower'),
   setPrimeTowerWidth: $('#setPrimeTowerWidth'),
@@ -1480,6 +1483,9 @@ function sliceBody() {
   if (+els.setInfill.value > 0) ps.sparse_infill_density = +els.setInfill.value;
   if (els.setInfillPattern.value) ps.sparse_infill_pattern = els.setInfillPattern.value;
   ps.enable_support = els.setSupports.checked; // always explicit
+  if (els.setSupportType.value) ps.support_type = els.setSupportType.value; // normal(auto)/tree(auto)
+  if (els.setSupportTopZ.value !== '') ps.support_top_z_distance = +els.setSupportTopZ.value;
+  if (els.setSupportBottomZ.value !== '') ps.support_bottom_z_distance = +els.setSupportBottomZ.value;
   if (els.setBrim.value) ps.brim_type = els.setBrim.value;
   // Prime/wipe tower only matters for multi-colour (painted) jobs.
   if (body.paintMap && body.paintMap.length) {
@@ -1853,6 +1859,9 @@ function collectSettings() {
     infill: els.setInfill.value,
     infillPattern: els.setInfillPattern.value,
     supports: els.setSupports.checked,
+    supportType: els.setSupportType.value,
+    supportTopZ: els.setSupportTopZ.value,
+    supportBottomZ: els.setSupportBottomZ.value,
     brim: els.setBrim.value,
     primeTower: els.setPrimeTower.checked,
     primeTowerWidth: els.setPrimeTowerWidth.value,
@@ -1866,6 +1875,7 @@ function applySettings(s) {
   set(els.setTopLayers, s.topLayers); set(els.setBottomLayers, s.bottomLayers);
   set(els.setInfill, s.infill); set(els.setInfillPattern, s.infillPattern);
   els.setSupports.checked = !!s.supports;
+  set(els.setSupportType, s.supportType); set(els.setSupportTopZ, s.supportTopZ); set(els.setSupportBottomZ, s.supportBottomZ);
   set(els.setBrim, s.brim);
   els.setPrimeTower.checked = s.primeTower !== false;
   set(els.setPrimeTowerWidth, s.primeTowerWidth);

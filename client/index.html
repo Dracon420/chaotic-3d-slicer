@@ -284,6 +284,22 @@
             <span>Supports</span>
             <input id="setSupports" type="checkbox" class="toggle" />
           </label>
+          <label class="field"><span>Support style</span>
+            <select id="setSupportType">
+              <option value="">(use preset)</option>
+              <option value="normal(auto)">Normal</option>
+              <option value="tree(auto)">Tree</option>
+            </select>
+          </label>
+          <div class="field-row">
+            <label class="field"><span>Top Z gap (mm)</span>
+              <input id="setSupportTopZ" type="number" min="0" max="1" step="0.01" placeholder="preset" inputmode="decimal" />
+            </label>
+            <label class="field"><span>Bottom Z gap (mm)</span>
+              <input id="setSupportBottomZ" type="number" min="0" max="1" step="0.01" placeholder="preset" inputmode="decimal" />
+            </label>
+          </div>
+          <p class="hint">Tree supports use less material and peel off easier; Normal is sturdier under flat overhangs. Z gap is the air space between support and model — larger = easier removal, smaller = better surface.</p>
           <label class="field"><span>Brim</span>
             <select id="setBrim">
               <option value="">(use preset)</option>
