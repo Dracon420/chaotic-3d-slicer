@@ -1376,6 +1376,18 @@ els.sliceBtn.addEventListener('click', async () => {
       if (state.meshDirty) { log('Uploading painted mesh…'); await uploadCurrentMesh(); }
       body = sliceBody();
     }
+    // Paint readout — make it unmistakable whether this slice carries a colour
+    // split, so a single-colour result is never a silent surprise.
+    if (els.printerSel.selectedOptions[0]?.dataset.protocol === 'mqtt') {
+      if (state.objects.length > 1 && state.objects.some((o) => o.hasPaint)) {
+        log('⚠ Painted multi-part plates print SINGLE colour for now — the paint is dropped when the parts are merged. Slice one painted part at a time to keep the colours.', 'err');
+      } else if (Array.isArray(body.paintMap) && body.paintMap.some((v) => v > 0)) {
+        const slots = [...new Set(body.paintMap)].filter((v) => v >= 0).sort();
+        log(`🎨 Colour split: ${body.paintMap.filter((v) => v > 0).length} painted faces across slots ${slots.map((s) => '#' + (s + 1)).join(' + ')}.`);
+      } else {
+        log('ℹ Single colour — no paint detected on the model. (Paint it on the Paint tab; for a 2-colour split use Effects → clean at the MIDDLE height.)');
+      }
+    }
     const res = await fetch('/api/slice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
