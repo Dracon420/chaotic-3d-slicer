@@ -151,6 +151,8 @@ const els = {
   setSkirtHeight: $('#setSkirtHeight'),
   setPrimeTower: $('#setPrimeTower'),
   setPrimeTowerWidth: $('#setPrimeTowerWidth'),
+  setBedX: $('#setBedX'),
+  setBedY: $('#setBedY'),
 };
 
 // ─── Three.js scene ──────────────────────────────────────────
@@ -1806,41 +1808,73 @@ function pickPreset(sel, includes, excludes = []) {
 
 // Apply the bed dimensions stored in the selected machine preset's dataset to
 // the 3D viewport and position sliders. Called whenever the machine preset changes.
+function applyBedSize(x, y) {
+  if (!(x > 10 && y > 10)) return;
+  state.bed = { x, y };
+  els.posX.max = x; els.posY.max = y;
+  if (+els.posX.value > x) { els.posX.value = x / 2; setNum(els.posXOut, x / 2); }
+  if (+els.posY.value > y) { els.posY.value = y / 2; setNum(els.posYOut, y / 2); }
+  els.setBedX.value = x;
+  els.setBedY.value = y;
+  buildBed();
+  applyTransform();
+}
+
 function applyBedFromSelectedPreset() {
   const opt = els.machineSel.selectedOptions[0];
   if (!opt || !opt.dataset.bed) return;
   try {
     const bed = JSON.parse(opt.dataset.bed);
-    if (!(bed.x > 10 && bed.y > 10)) return;
-    state.bed = { x: bed.x, y: bed.y };
-    els.posX.max = bed.x;
-    els.posY.max = bed.y;
-    if (+els.posX.value > bed.x) { els.posX.value = bed.x / 2; setNum(els.posXOut, bed.x / 2); }
-    if (+els.posY.value > bed.y) { els.posY.value = bed.y / 2; setNum(els.posYOut, bed.y / 2); }
-    buildBed();
-    applyTransform();
+    applyBedSize(bed.x, bed.y);
   } catch { /* ignore bad dataset */ }
 }
 
-// Hide system (Built-in) machine presets that don't match any added printer's
-// vendor, so the list stays manageable. User presets are always visible.
+// Filter machine/process/filament presets to show only those relevant to the
+// currently-selected printer. User presets are always visible. System presets
+// (all Elegoo brand) are filtered by exact keyword patterns for each protocol.
+// inc=null means hide ALL system presets (correct for moonraker — the system
+// dir only has Elegoo presets; the user's Ender preset is a user preset).
 function filterPresetsForPrinters() {
-  const protocols = new Set(state.printers.map((p) => p.protocol));
-  if (!protocols.size) return; // no printers yet — show everything
-  const kw = [];
-  if (protocols.has('sdcp'))      kw.push('centauri carbon');
-  if (protocols.has('mqtt'))      kw.push('centauri carbon 2', 'cc2');
-  if (protocols.has('bambu'))     kw.push('bambu', 'a1 mini', 'a1m', 'a1 ', 'p1', 'x1');
-  if (protocols.has('moonraker')) kw.push('ender', 'creality', 'voron', 'prusa', 'cr-');
-  for (const opt of els.machineSel.options) {
-    const inUserGroup = opt.parentElement?.label === 'My presets';
-    if (inUserGroup) { opt.hidden = false; continue; }
-    const name = opt.textContent.toLowerCase();
-    opt.hidden = !kw.some((k) => name.includes(k));
+  const protocol = els.printerSel.selectedOptions[0]?.dataset.protocol;
+  if (!protocol) return; // no printer selected — leave everything visible
+
+  function filterSel(sel, inc, exc = []) {
+    for (const o of sel.options) {
+      const isUser = o.parentElement?.label === 'My presets';
+      if (isUser) { o.hidden = false; continue; }
+      if (inc === null) { o.hidden = true; continue; }
+      const name = o.textContent.toLowerCase();
+      const pass = (!inc.length || inc.some((k) => name.includes(k))) &&
+                   !exc.some((k) => name.includes(k));
+      o.hidden = !pass;
+    }
+    const cur = sel.selectedOptions[0];
+    if (cur) cur.hidden = false; // never hide the active selection
   }
-  // Ensure the currently-selected option is never hidden.
-  const sel = els.machineSel.selectedOptions[0];
-  if (sel) sel.hidden = false;
+
+  if (protocol === 'sdcp') {
+    // CC1: "Elegoo Centauri Carbon 0.4 nozzle" (no "2")
+    filterSel(els.machineSel, ['centauri carbon'], ['carbon 2', 'carbon2']);
+    // CC1 process: "…@Elegoo CC 0.4 nozzle" (space after CC — avoids matching CC2)
+    filterSel(els.processSel, ['@elegoo cc '], ['@elegoo cc2']);
+    // CC1 filament: "…@ECC" (not "@ECC2")
+    filterSel(els.filamentSel, ['@ecc'], ['@ecc2']);
+  } else if (protocol === 'mqtt') {
+    // CC2: "Elegoo Centauri Carbon 2 0.4 nozzle"
+    filterSel(els.machineSel, ['carbon 2', 'cc2'], []);
+    filterSel(els.processSel, ['@elegoo cc2'], []);
+    filterSel(els.filamentSel, ['@ecc2'], []);
+  } else if (protocol === 'bambu') {
+    filterSel(els.machineSel, ['bambu', 'a1 mini', 'a1m', ' a1 ', 'p1s', 'x1c', 'p1p'], ['elegoo', 'centauri']);
+    filterSel(els.processSel, ['@bbl', '@bambu', '@a1'], ['elegoo', 'centauri']);
+    filterSel(els.filamentSel, ['bambu', '@bbl', 'bbl '], ['elegoo', 'centauri']);
+  } else if (protocol === 'moonraker') {
+    // System presets are all Elegoo — irrelevant for Klipper printers.
+    // The user's Ender / custom preset lives under "My presets" and stays visible.
+    filterSel(els.machineSel, null);
+    filterSel(els.processSel, null);
+    filterSel(els.filamentSel, null);
+  }
 }
 
 // CRITICAL for the CC2 Canvas: the gcode must be sliced with the matching
@@ -2042,9 +2076,21 @@ els.machineSel.addEventListener('change', applyBedFromSelectedPreset);
 
 els.printerSel.addEventListener('change', () => {
   autoSelectPresetsForPrinter();
+  filterPresetsForPrinters();
   renderPrinterCards();
   loadFilament();
   updatePaintUI();
+});
+
+els.setBedX.addEventListener('change', () => {
+  const x = +els.setBedX.value;
+  const y = +els.setBedY.value || state.bed.y;
+  applyBedSize(x, y);
+});
+els.setBedY.addEventListener('change', () => {
+  const x = +els.setBedX.value || state.bed.x;
+  const y = +els.setBedY.value;
+  applyBedSize(x, y);
 });
 els.filamentRefresh.addEventListener('click', loadFilament);
 
@@ -2481,11 +2527,13 @@ async function init() {
     /* backend not reachable yet; fall back to defaults */
   }
 
-  // Configure sliders to match the bed.
+  // Configure sliders and bed-size inputs to match the bed.
   els.posX.max = state.bed.x;
   els.posY.max = state.bed.y;
   els.posX.value = state.bed.x / 2;
   els.posY.value = state.bed.y / 2;
+  els.setBedX.value = state.bed.x;
+  els.setBedY.value = state.bed.y;
 
   buildBed();
   applyTransform();
@@ -2496,8 +2544,8 @@ async function init() {
   // Load presets + printers, then align the slicing presets to the selected
   // printer (so a CC2 target slices with the CC2 machine preset / Canvas macro).
   Promise.all([loadPresets(), loadPrinters()]).then(() => {
-    filterPresetsForPrinters();
     autoSelectPresetsForPrinter();
+    filterPresetsForPrinters();
   });
   loadProfiles();
 }

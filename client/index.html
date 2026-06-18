@@ -263,6 +263,19 @@
         </div>
 
         <div class="group">
+          <div class="group__title">Bed size</div>
+          <div class="field-row">
+            <label class="field"><span>Width X (mm)</span>
+              <input id="setBedX" type="number" min="50" max="500" step="1" inputmode="numeric" />
+            </label>
+            <label class="field"><span>Depth Y (mm)</span>
+              <input id="setBedY" type="number" min="50" max="500" step="1" inputmode="numeric" />
+            </label>
+          </div>
+          <p class="hint">Auto-set from the machine preset. Override here if the bed preview shows the wrong size for your printer.</p>
+        </div>
+
+        <div class="group">
           <div class="group__title">Quality</div>
           <div class="field-row">
             <label class="field"><span>Layer height (mm)</span>
