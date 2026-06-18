@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Slice and print from your phone.</b><br/>
-  A self-hosted mobile slicer for the Elegoo Centauri Carbon, Centauri Carbon&nbsp;2 (incl. 4-colour Canvas painting) and Bambu&nbsp;Lab printers — powered by the real ElegooSlicer/OrcaSlicer engine running on your own PC.
+  A self-hosted mobile slicer for Elegoo Centauri Carbon, Centauri Carbon&nbsp;2 (incl. 4-colour Canvas painting), Bambu&nbsp;Lab, and Klipper/Moonraker printers — powered by the real ElegooSlicer/OrcaSlicer engine running on your own PC.
 </p>
 
 <p align="center">
@@ -33,11 +33,11 @@ the other side of the world over Tailscale.
 | 📱 **Installable phone app** | A PWA with its own home-screen icon, full-screen, no address bar (trusted local HTTPS included) |
 | 🧩 **Multi-object editor** | Put several models on one bed — add, clone, remove, **auto-arrange**, **tap a part to select it and drag it to position** (like a desktop slicer), with per-part move / rotate / scale |
 | 🎨 **Multi-colour painting** | Brush, tap-to-fill-face, and Effects (clean layer change, interlocked seam, fade/gradient, stripes, rainbow, confetti, checkerboard) for the CC2's 4-slot Canvas; pick a Canvas slot to print single-colour in that tray (and the model preview recolours to match) |
-| 📤 **Network send** | Upload + start prints over the LAN: CC1 (SDCP), CC2 (MQTT incl. Canvas slot mapping), Bambu (LAN mode FTPS + MQTT) |
+| 📤 **Network send** | Upload + start prints over the LAN: CC1 (SDCP), CC2 (MQTT incl. Canvas slot mapping), Bambu (LAN mode FTPS + MQTT), **Klipper / Moonraker** (HTTP upload to any Moonraker instance) |
 | 🌍 **Remote slicing** | Works over [Tailscale](https://tailscale.com) — the HTTPS certificate covers your tailnet IP out of the box |
 | ⚙️ **Slicer-grade settings** | Machine / process / filament preset pickers, plate type, layer height, walls, infill, **normal & tree supports + top/bottom Z gap**, brim, **skirt (lines + height)**, prime tower, temperature overrides — plus save/load **settings profiles** |
 | 👁 **Sliced preview** | After slicing, view the real **toolpaths in 3D** — colour-coded by feature (walls, infill, supports, brim, skirt…) with a per-layer scrub slider, so you can check the result before printing |
-| 🖨 **Printer manager** | Auto-discovers printers from your slicer config + LAN scan; add/remove printers manually (incl. Bambu serial + access code) |
+| 🖨 **Printer manager** | Auto-discovers printers from your slicer config + LAN scan; add/remove printers manually (incl. Bambu serial + access code, Klipper host + port) |
 | 📊 **Print estimates** | Time / filament weight / layer count after every slice, plus a live job thumbnail embedded for the printer's screen |
 
 ### Supported printers
@@ -47,6 +47,7 @@ the other side of the world over Tailscale.
 | Elegoo Centauri Carbon (CC1) | ✅ | ✅ SDCP | — |
 | Elegoo Centauri Carbon 2 (CC2) | ✅ | ✅ MQTT | ✅ 4-slot Canvas painting |
 | Bambu Lab A1 mini / A1 / P1 / X1 (LAN mode) | ✅ | ✅ FTPS + MQTT¹ | — |
+| Klipper / Moonraker (Ender 3, Voron, custom…) | ✅ | ✅ HTTP (Moonraker API) | — |
 
 ¹ Bambu send is implemented per the LAN-mode protocol; please report issues.
 
@@ -92,7 +93,7 @@ Install [Tailscale](https://tailscale.com) on the PC and your phone, sign both i
   - 👆 *Face* — tap a flat surface to fill it
   - ✨ *Effects* — clean layer change at a height, interlocked seam, fade/gradient between two colours, stripes, rainbow bands, confetti, checkerboard — with size controls
   - The swatches mirror the **actual filaments loaded in your Canvas**, live from the printer.
-- **Printers tab** — scan the LAN, check live status, add a printer manually (for Bambu: IP + serial + LAN access code from the printer's screen), or remove one.
+- **Printers tab** — scan the LAN, check live status, add a printer manually (Bambu: IP + serial + LAN access code; Klipper: IP + port, optional API key), or remove one.
 - **Settings tab** — presets, plate type, quality/infill overrides, **supports (normal or tree, with top/bottom Z gap)**, brim, **skirt (number of lines + how many layers tall)**, prime tower for multi-colour, temperature overrides, and **saved profiles** to switch whole setups in one tap.
 
 ---
@@ -139,7 +140,8 @@ PC tray app (Electron) ── Express + Socket.io server
    │            │                    │
    │            │                    ├─ CC1: SDCP (WebSocket :3030 + HTTP upload)
    │            │                    ├─ CC2: MQTT :1883 (upload, Canvas slot map, status)
-   │            │                    └─ Bambu: FTPS :990 + MQTT-TLS :8883 (LAN mode)
+   │            │                    ├─ Bambu: FTPS :990 + MQTT-TLS :8883 (LAN mode)
+   │            │                    └─ Klipper: HTTP Moonraker API :7125 (upload + auto-start)
    │            └─ ElegooSlicer / OrcaSlicer CLI (real slicing engine)
    └─ auto-detects the slicer install + presets at launch
 ```
