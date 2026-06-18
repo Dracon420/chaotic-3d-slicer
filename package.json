@@ -57,7 +57,6 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "Chaotic 3D Slicer",
-      "closeApplications": true,
       "uninstallDisplayName": "Chaotic 3D Slicer"
     }
   }
