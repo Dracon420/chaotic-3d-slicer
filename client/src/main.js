@@ -1080,7 +1080,15 @@ function applyEffect() {
     }, { tessellate: C * 0.55 });
     log(`Checkerboard (~${C.toFixed(1)} mm squares).`, 'ok');
   }
-  if (!faces) log('Effect produced no change — check the settings.', 'err');
+  if (!faces) { log('Effect produced no change — check the settings.', 'err'); return; }
+  // Guard the silent failure: if the effect painted the WHOLE model one colour
+  // (e.g. the change height landed above/below the entire model, or A == B), it
+  // will print single‑colour with no other warning. Say so, loudly.
+  const distinct = new Set(state.paintMap);
+  if (distinct.size <= 1) {
+    const only = ([...distinct][0] | 0) + 1;
+    log(`⚠ This came out ALL one colour (slot #${only}). For a 2‑colour split, set the change height into the MIDDLE of the model — it's ${state.modelHeight.toFixed(1)} mm tall, so try ~${(state.modelHeight / 2).toFixed(1)} mm.`, 'err');
+  }
 }
 
 // Pointer painting (only on the Paint tab): Brush = drag, Face = tap.
@@ -1205,6 +1213,16 @@ function updateFxRows() {
   els.fxRowFrom.hidden = false; // every effect uses the From value (height/band/cell/dot)
   els.fxRowTo.hidden = type !== 'fade'; // only the fade range needs a "to"
   els.fxControls.querySelector('.fx-rowlbl').textContent = label;
+  // For the two-colour "change at a height" effects, default the height to the
+  // MIDDLE of the model if it's still at an extreme (0 or the top) — otherwise
+  // the change lands above/below the whole model and it prints one colour.
+  if ((type === 'clean' || type === 'interlock' || type === 'fade') && state.modelHeight > 0) {
+    const v = +els.layFrom.value;
+    if (v <= 0 || v >= +els.layFrom.max) {
+      const mid = +(state.modelHeight / 2).toFixed(1);
+      els.layFrom.value = mid; setNum(els.layFromOut, mid);
+    }
+  }
 }
 els.fxType.addEventListener('change', updateFxRows);
 
