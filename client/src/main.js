@@ -552,9 +552,24 @@ function bakedZupGeometry(o) {
   return g.toNonIndexed();
 }
 
-// Merge all objects into one STL and upload it; returns the server filename.
+// Merge all objects into one STL and upload it. Also concatenates each part's
+// paint map in the SAME order the geometries are merged, so a painted full-bed
+// plate keeps every part's colours. Returns { name, paintMap }.
 async function uploadMergedObjects() {
-  const parts = state.objects.map(bakedZupGeometry);
+  const parts = [];
+  const paint = [];
+  let anyPaint = false;
+  for (const o of state.objects) {
+    const baked = bakedZupGeometry(o); // baked triangle order == o.raw == o.paintMap order
+    parts.push(baked);
+    const tri = baked.getAttribute('position').count / 3;
+    const pm = o.paintMap;
+    for (let i = 0; i < tri; i++) {
+      const v = pm && pm[i] > 0 ? pm[i] : 0;
+      paint.push(v);
+      if (v > 0) anyPaint = true;
+    }
+  }
   const merged = parts.length === 1 ? parts[0] : BufferGeometryUtils.mergeGeometries(parts, false);
   merged.computeVertexNormals();
   const stl = stlExporter.parse(new THREE.Mesh(merged), { binary: true });
@@ -563,7 +578,7 @@ async function uploadMergedObjects() {
   form.append('model', new Blob([stl], { type: 'application/octet-stream' }), `${name}.stl`);
   const res = await fetch('/api/upload', { method: 'POST', body: form });
   if (!res.ok) throw new Error(await res.text());
-  return (await res.json()).name;
+  return { name: (await res.json()).name, paintMap: anyPaint ? paint : null };
 }
 
 // Merge every mesh in a loaded object into one position-only geometry, baked
@@ -1364,12 +1379,14 @@ els.sliceBtn.addEventListener('click', async () => {
       // neutral transform — the placement is already in the geometry.
       log(`Merging ${state.objects.length} parts…`);
       saveSelectedObject();
-      const name = await uploadMergedObjects();
+      const merged = await uploadMergedObjects();
       body = sliceBody();
-      body.name = name;
+      body.name = merged.name;
       body.posX = state.bed.x / 2; body.posY = state.bed.y / 2;
       body.rotX = 0; body.rotY = 0; body.rotZ = 0; body.scalePercent = 100;
-      delete body.paintMap; // per-triangle paint maps don't survive the merge
+      // Carry the combined per-part paint through the merge (full painted bed).
+      if (merged.paintMap) { body.paintMap = merged.paintMap; body.interlock = state.interlock; }
+      else delete body.paintMap;
     } else {
       // Layer painting clips the mesh — re-upload it so the server slices the
       // exact triangles the paint map is keyed to.
@@ -1379,11 +1396,10 @@ els.sliceBtn.addEventListener('click', async () => {
     // Paint readout — make it unmistakable whether this slice carries a colour
     // split, so a single-colour result is never a silent surprise.
     if (els.printerSel.selectedOptions[0]?.dataset.protocol === 'mqtt') {
-      if (state.objects.length > 1 && state.objects.some((o) => o.hasPaint)) {
-        log('⚠ Painted multi-part plates print SINGLE colour for now — the paint is dropped when the parts are merged. Slice one painted part at a time to keep the colours.', 'err');
-      } else if (Array.isArray(body.paintMap) && body.paintMap.some((v) => v > 0)) {
+      if (Array.isArray(body.paintMap) && body.paintMap.some((v) => v > 0)) {
         const slots = [...new Set(body.paintMap)].filter((v) => v >= 0).sort();
-        log(`🎨 Colour split: ${body.paintMap.filter((v) => v > 0).length} painted faces across slots ${slots.map((s) => '#' + (s + 1)).join(' + ')}.`);
+        const parts = state.objects.length > 1 ? ` (${state.objects.length} parts)` : '';
+        log(`🎨 Colour split${parts}: ${body.paintMap.filter((v) => v > 0).length} painted faces across slots ${slots.map((s) => '#' + (s + 1)).join(' + ')}.`);
       } else {
         log('ℹ Single colour — no paint detected on the model. (Paint it on the Paint tab; for a 2-colour split use Effects → clean at the MIDDLE height.)');
       }
