@@ -2219,6 +2219,8 @@ function collectSettings() {
     process: els.processSel.value,
     filament: els.filamentSel.value,
     bedType: els.bedTypeSel.value,
+    bedX: +els.setBedX.value || state.bed.x,
+    bedY: +els.setBedY.value || state.bed.y,
     bedTemp: els.bedTemp.value,
     nozzleTemp: els.nozzleTemp.value,
     layerHeight: els.setLayerHeight.value,
@@ -2244,13 +2246,17 @@ function applySettings(s) {
   set(els.bedTypeSel, s.bedType); set(els.bedTemp, s.bedTemp); set(els.nozzleTemp, s.nozzleTemp);
   set(els.setLayerHeight, s.layerHeight); set(els.setWalls, s.walls);
   set(els.setTopLayers, s.topLayers); set(els.setBottomLayers, s.bottomLayers);
-  set(els.setInfill, s.infill); set(els.setInfillPattern, s.infillPattern);
+  set(els.setInfill, s.infill); setNum(els.infillOut, els.setInfill.value ? `${els.setInfill.value}%` : 'preset');
+  set(els.setInfillPattern, s.infillPattern);
   els.setSupports.checked = !!s.supports;
   set(els.setSupportType, s.supportType); set(els.setSupportTopZ, s.supportTopZ); set(els.setSupportBottomZ, s.supportBottomZ);
   set(els.setBrim, s.brim);
   set(els.setSkirtLoops, s.skirtLoops); set(els.setSkirtHeight, s.skirtHeight);
   els.setPrimeTower.checked = s.primeTower !== false;
   set(els.setPrimeTowerWidth, s.primeTowerWidth);
+  // Restore bed size — prefer saved explicit dims, fall back to machine preset.
+  if (s.bedX > 10 && s.bedY > 10) applyBedSize(s.bedX, s.bedY);
+  else applyBedFromSelectedPreset();
 }
 async function loadProfiles(selectName) {
   try {
