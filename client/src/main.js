@@ -10,7 +10,7 @@ import { io } from 'socket.io-client';
 
 // ─── State ───────────────────────────────────────────────────
 const state = {
-  bed: { x: 220, y: 220 },
+  bed: { x: 220, y: 220, z: 250 },
   // Multi-object editor. `objects` holds every part on the bed; `sel` is the
   // selected index. The per-object fields below (rawGeometry, paintMap, …) always
   // MIRROR objects[sel] — saved back on every selection change — so all the
@@ -153,6 +153,7 @@ const els = {
   setPrimeTowerWidth: $('#setPrimeTowerWidth'),
   setBedX: $('#setBedX'),
   setBedY: $('#setBedY'),
+  setBedZ: $('#setBedZ'),
 };
 
 // ─── Three.js scene ──────────────────────────────────────────
@@ -1808,14 +1809,15 @@ function pickPreset(sel, includes, excludes = []) {
 
 // Apply the bed dimensions stored in the selected machine preset's dataset to
 // the 3D viewport and position sliders. Called whenever the machine preset changes.
-function applyBedSize(x, y) {
+function applyBedSize(x, y, z) {
   if (!(x > 10 && y > 10)) return;
-  state.bed = { x, y };
+  state.bed = { x, y, z: z > 10 ? z : state.bed.z };
   els.posX.max = x; els.posY.max = y;
   if (+els.posX.value > x) { els.posX.value = x / 2; setNum(els.posXOut, x / 2); }
   if (+els.posY.value > y) { els.posY.value = y / 2; setNum(els.posYOut, y / 2); }
   els.setBedX.value = x;
   els.setBedY.value = y;
+  els.setBedZ.value = state.bed.z;
   buildBed();
   applyTransform();
 }
@@ -1825,7 +1827,7 @@ function applyBedFromSelectedPreset() {
   if (!opt || !opt.dataset.bed) return;
   try {
     const bed = JSON.parse(opt.dataset.bed);
-    applyBedSize(bed.x, bed.y);
+    applyBedSize(bed.x, bed.y, bed.z);
   } catch { /* ignore bad dataset */ }
 }
 
@@ -2083,14 +2085,13 @@ els.printerSel.addEventListener('change', () => {
 });
 
 els.setBedX.addEventListener('change', () => {
-  const x = +els.setBedX.value;
-  const y = +els.setBedY.value || state.bed.y;
-  applyBedSize(x, y);
+  applyBedSize(+els.setBedX.value, +els.setBedY.value || state.bed.y, +els.setBedZ.value || state.bed.z);
 });
 els.setBedY.addEventListener('change', () => {
-  const x = +els.setBedX.value || state.bed.x;
-  const y = +els.setBedY.value;
-  applyBedSize(x, y);
+  applyBedSize(+els.setBedX.value || state.bed.x, +els.setBedY.value, +els.setBedZ.value || state.bed.z);
+});
+els.setBedZ.addEventListener('change', () => {
+  applyBedSize(+els.setBedX.value || state.bed.x, +els.setBedY.value || state.bed.y, +els.setBedZ.value);
 });
 els.filamentRefresh.addEventListener('click', loadFilament);
 
@@ -2221,6 +2222,7 @@ function collectSettings() {
     bedType: els.bedTypeSel.value,
     bedX: +els.setBedX.value || state.bed.x,
     bedY: +els.setBedY.value || state.bed.y,
+    bedZ: +els.setBedZ.value || state.bed.z,
     bedTemp: els.bedTemp.value,
     nozzleTemp: els.nozzleTemp.value,
     layerHeight: els.setLayerHeight.value,
@@ -2255,7 +2257,7 @@ function applySettings(s) {
   els.setPrimeTower.checked = s.primeTower !== false;
   set(els.setPrimeTowerWidth, s.primeTowerWidth);
   // Restore bed size — prefer saved explicit dims, fall back to machine preset.
-  if (s.bedX > 10 && s.bedY > 10) applyBedSize(s.bedX, s.bedY);
+  if (s.bedX > 10 && s.bedY > 10) applyBedSize(s.bedX, s.bedY, s.bedZ);
   else applyBedFromSelectedPreset();
 }
 async function loadProfiles(selectName) {
