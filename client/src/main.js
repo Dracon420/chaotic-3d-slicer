@@ -127,6 +127,9 @@ const els = {
   addCode: $('#addCode'),
   addPrinterBtn: $('#addPrinterBtn'),
   bambuFields: $('#bambuFields'),
+  moonrakerFields: $('#moonrakerFields'),
+  addMoonrakerPort: $('#addMoonrakerPort'),
+  addMoonrakerKey: $('#addMoonrakerKey'),
   profileSel: $('#profileSel'),
   profileApply: $('#profileApply'),
   profileSave: $('#profileSave'),
@@ -1816,6 +1819,13 @@ function autoSelectPresetsForPrinter() {
     if (!pickPreset(els.machineSel, ['a1 mini', 'a1m'])) pickPreset(els.machineSel, ['bambu', 'a1', 'p1', 'x1']);
     pickPreset(els.processSel, ['a1', 'bbl', 'bambu']);
     pickPreset(els.filamentSel, ['bambu', 'bbl', 'generic pla']);
+  } else if (opt.dataset.protocol === 'moonraker') {
+    // Klipper printer — try Ender 3 / Creality first, then fall back to generic.
+    if (!pickPreset(els.machineSel, ['ender 3 v2', 'ender3 v2'])) {
+      if (!pickPreset(els.machineSel, ['ender 3', 'ender3'])) pickPreset(els.machineSel, ['creality', 'ender']);
+    }
+    pickPreset(els.processSel, ['0.20mm', '0.2mm standard', 'standard']);
+    pickPreset(els.filamentSel, ['generic pla', 'pla @']);
   } else {
     // Centauri Carbon 1 (no Canvas)
     pickPreset(els.machineSel, ['centauri carbon', 'carbon'], ['carbon 2', 'cc2']);
@@ -1871,7 +1881,7 @@ function renderPrinterCards() {
     return;
   }
   for (const p of state.printers) {
-    const badge = { mqtt: 'CC2', sdcp: 'CC1', bambu: 'Bambu' }[p.protocol] || p.protocol;
+    const badge = { mqtt: 'CC2', sdcp: 'CC1', bambu: 'Bambu', moonraker: 'Klipper' }[p.protocol] || p.protocol;
     const card = document.createElement('div');
     card.className = 'printer-card' + (p.host === els.printerSel.value ? ' active' : '');
     card.innerHTML =
@@ -2036,6 +2046,7 @@ els.scanBtn.addEventListener('click', async () => {
 // ─── Add / manage printers (Printers page) ───────────────────
 els.addType.addEventListener('change', () => {
   els.bambuFields.hidden = els.addType.value !== 'bambu';
+  els.moonrakerFields.hidden = els.addType.value !== 'moonraker';
 });
 els.addPrinterBtn.addEventListener('click', async () => {
   const body = {
@@ -2051,6 +2062,11 @@ els.addPrinterBtn.addEventListener('click', async () => {
       log('Bambu printers need the serial number AND LAN access code.', 'err');
       return;
     }
+  }
+  if (body.protocol === 'moonraker') {
+    body.port = parseInt(els.addMoonrakerPort.value, 10) || 7125;
+    const key = els.addMoonrakerKey.value.trim();
+    if (key) body.apiKey = key;
   }
   els.addPrinterBtn.disabled = true;
   const oldLabel = els.addPrinterBtn.textContent;

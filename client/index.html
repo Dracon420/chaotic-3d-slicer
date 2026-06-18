@@ -208,6 +208,7 @@
               <option value="sdcp">Elegoo Centauri Carbon (CC1)</option>
               <option value="mqtt">Elegoo Centauri Carbon 2 (CC2)</option>
               <option value="bambu">Bambu Lab (A1 mini / A1 / P1 / X1, LAN mode)</option>
+              <option value="moonraker">Klipper / Moonraker (Ender, Voron, custom, etc.)</option>
             </select>
           </label>
           <div id="bambuFields" hidden>
@@ -216,6 +217,13 @@
               <label class="field"><span>LAN access code</span><input id="addCode" type="text" placeholder="printer: Settings → WLAN" /></label>
             </div>
             <p class="hint">Enable LAN mode on the printer first. The access code and serial are both shown on the printer's screen.</p>
+          </div>
+          <div id="moonrakerFields" hidden>
+            <div class="field-row">
+              <label class="field"><span>Port</span><input id="addMoonrakerPort" type="number" value="7125" placeholder="7125" inputmode="numeric" /></label>
+              <label class="field"><span>API key (optional)</span><input id="addMoonrakerKey" type="text" placeholder="leave blank if not set" /></label>
+            </div>
+            <p class="hint">Port is almost always 7125. An API key is only needed if you enabled trusted-client auth in Moonraker's config.</p>
           </div>
           <button id="addPrinterBtn" class="btn btn--primary btn--wide">＋ Add printer</button>
         </div>

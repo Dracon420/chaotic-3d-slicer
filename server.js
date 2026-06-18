@@ -498,7 +498,7 @@ app.get('/api/printers', async (_req, res) => {
     printers.map(async (p) => {
       p.online = p.protocol === 'bambu'
         ? await bambu.online(p.host)
-        : await printer.printerOnline(p.host, p.protocol);
+        : await printer.printerOnline(p.host, p.protocol, p.port);
     })
   );
   // Never ship the Bambu access code to the browser.
@@ -549,9 +549,14 @@ app.post('/api/printers', async (req, res) => {
     name: (name || '').trim() || `Printer @ ${host}`,
     host: host.trim(),
     protocol,
-    model: protocol === 'bambu' ? 'Bambu (LAN)' : protocol === 'mqtt' ? 'Centauri Carbon 2' : 'Centauri Carbon',
+    model: { bambu: 'Bambu (LAN)', mqtt: 'Centauri Carbon 2', moonraker: 'Klipper / Moonraker' }[protocol] || 'Centauri Carbon',
   };
   if (protocol === 'bambu') { entry.serial = serial.trim(); entry.accessCode = accessCode.trim(); }
+  if (protocol === 'moonraker') {
+    entry.port = parseInt(req.body.port, 10) || 7125;
+    const apiKey = (req.body.apiKey || '').trim();
+    if (apiKey) entry.apiKey = apiKey;
+  }
   // For a CC2, grab its MainboardID now so MQTT works immediately. If the
   // printer is asleep/unreachable we still save it; ensureMainboardId() will
   // backfill the id the first time it's used.
@@ -702,6 +707,24 @@ app.post('/api/print', async (req, res) => {
         } catch {
           /* status read is best-effort */
         }
+        return res.json({ success: true, started: true });
+      }
+    } else if (p.protocol === 'moonraker') {
+      // Klipper / Moonraker: multipart upload to /server/files/upload, auto-start
+      // via print=true on the same request. Port and optional API key come from
+      // the saved printer entry.
+      await printer.startPrintMoonraker({
+        host: p.host,
+        port: p.port || 7125,
+        apiKey: p.apiKey,
+        filePath: gcodePath,
+        fileName,
+        start: !!start,
+        onLog,
+      });
+      emit('print:uploaded', { fileName });
+      if (start) {
+        emit('print:done', { started: true });
         return res.json({ success: true, started: true });
       }
     } else {
