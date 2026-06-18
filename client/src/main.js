@@ -75,6 +75,7 @@ const els = {
   previewBtn: $('#previewBtn'),
   previewBar: $('#previewBar'),
   previewClose: $('#previewClose'),
+  previewModeBtn: $('#previewModeBtn'),
   previewLayer: $('#previewLayer'),
   previewLayerLbl: $('#previewLayerLbl'),
   previewLegend: $('#previewLegend'),
@@ -1407,11 +1408,12 @@ function parseGcodePreview(text) {
   let x = 0, y = 0, z = 0, lastE = 0;
   let absXYZ = true, absE = false; // OrcaSlicer default: G90 absolute XYZ, M83 relative E
   let curType = 'default';
-  const segPos = [], segCol = [];
+  let curTool = 0; // active filament/tool (T0..T3) — tracks the colour changes
+  const segPos = [], segType = [], segTool = [];
   const layerEnds = []; // cumulative segment count at the end of each layer
   let segCount = 0, started = false;
   const seen = new Set();
-  const _c = new THREE.Color();
+  const toolsUsed = new Set();
   const lines = text.split('\n');
   for (let li = 0; li < lines.length; li++) {
     let line = lines[li];
@@ -1423,6 +1425,12 @@ function parseGcodePreview(text) {
         if (started) layerEnds.push(segCount);
         started = true;
       }
+      continue;
+    }
+    // Tool/filament change: a line that is just "T<n>" (the gcode swaps colour).
+    if (line.charCodeAt(0) === 84 /* T */) {
+      const m = /^T(\d+)/.exec(line);
+      if (m) curTool = +m[1];
       continue;
     }
     const ci = line.indexOf(';'); if (ci >= 0) line = line.slice(0, ci);
@@ -1453,19 +1461,37 @@ function parseGcodePreview(text) {
     }
     if (extruding && (nx !== x || ny !== y)) {
       segPos.push(x - bx / 2, z, by / 2 - y, nx - bx / 2, nz, by / 2 - ny);
-      _c.set(gcodeColorFor(curType));
-      segCol.push(_c.r, _c.g, _c.b, _c.r, _c.g, _c.b);
+      segType.push(curType);
+      segTool.push(curTool);
       segCount++;
       seen.add(curType);
+      toolsUsed.add(curTool);
     }
     x = nx; y = ny; z = nz;
   }
   if (started) layerEnds.push(segCount);
   if (!layerEnds.length) layerEnds.push(segCount);
-  return { positions: new Float32Array(segPos), colors: new Float32Array(segCol), layerEnds, types: seen };
+  return { positions: new Float32Array(segPos), segType, segTool, layerEnds, types: seen, toolsUsed };
 }
 
-let previewMesh = null, previewData = null;
+// Build a per-vertex colour Float32Array for the preview, either by feature
+// (walls/infill/…) or by filament tool (T0..T3 → the Canvas tray colours).
+function previewColors(data, mode) {
+  const n = data.segType.length;
+  const arr = new Float32Array(n * 6);
+  const _c = new THREE.Color();
+  const trayCols = paintColors(); // 4 tray colours (or fallbacks)
+  for (let i = 0; i < n; i++) {
+    if (mode === 'tool') _c.set(trayCols[data.segTool[i] & 3] || '#888');
+    else _c.set(gcodeColorFor(data.segType[i]));
+    const o = i * 6;
+    arr[o] = _c.r; arr[o + 1] = _c.g; arr[o + 2] = _c.b;
+    arr[o + 3] = _c.r; arr[o + 4] = _c.g; arr[o + 5] = _c.b;
+  }
+  return arr;
+}
+
+let previewMesh = null, previewData = null, previewMode = 'feature';
 
 async function showPreview() {
   if (!state.lastGcode) return;
@@ -1477,7 +1503,7 @@ async function showPreview() {
     if (previewMesh) { scene.remove(previewMesh); previewMesh.geometry.dispose(); }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(previewData.positions, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(previewData.colors, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(previewColors(previewData, previewMode), 3));
     previewMesh = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true }));
     scene.add(previewMesh);
     modelGroup.visible = false;
@@ -1486,7 +1512,10 @@ async function showPreview() {
     const n = previewData.layerEnds.length || 1;
     els.previewLayer.min = 1; els.previewLayer.max = n; els.previewLayer.value = n;
     setPreviewLayer(n);
-    buildPreviewLegend(previewData.types);
+    renderPreviewLegend();
+    // If the slice is multi-colour (>1 tool), default to the colour view so you
+    // can immediately see the colour split.
+    if (previewData.toolsUsed.size > 1) setPreviewMode('tool');
     els.previewBar.hidden = false;
     userOrbited = false; frameView();
   } catch (e) {
@@ -1497,6 +1526,15 @@ async function showPreview() {
   }
 }
 
+function setPreviewMode(mode) {
+  previewMode = mode;
+  if (previewMesh && previewData) {
+    previewMesh.geometry.setAttribute('color', new THREE.BufferAttribute(previewColors(previewData, mode), 3));
+  }
+  if (els.previewModeBtn) els.previewModeBtn.textContent = mode === 'tool' ? '🎨 Colour' : '🧩 Feature';
+  renderPreviewLegend();
+}
+
 function setPreviewLayer(L) {
   if (!previewData || !previewMesh) return;
   const ends = previewData.layerEnds;
@@ -1505,14 +1543,20 @@ function setPreviewLayer(L) {
   els.previewLayerLbl.textContent = `Layer ${L} / ${ends.length}`;
 }
 
-function buildPreviewLegend(types) {
+function renderPreviewLegend() {
   els.previewLegend.innerHTML = '';
-  for (const t of Object.keys(GCODE_TYPE_COLORS)) {
-    if (!types.has(t)) continue;
+  const add = (color, label) => {
     const item = document.createElement('span');
     item.className = 'preview-legend__item';
-    item.innerHTML = `<span class="preview-legend__dot" style="background:${gcodeColorFor(t)}"></span>${t}`;
+    item.innerHTML = `<span class="preview-legend__dot" style="background:${color}"></span>${label}`;
     els.previewLegend.appendChild(item);
+  };
+  if (previewMode === 'tool' && previewData) {
+    const cols = paintColors();
+    [...previewData.toolsUsed].sort().forEach((t) => add(cols[t & 3] || '#888', `Slot #${t + 1}`));
+    if (previewData.toolsUsed.size <= 1) add('#9aa4b2', 'Single colour (no swap)');
+  } else if (previewData) {
+    for (const t of Object.keys(GCODE_TYPE_COLORS)) if (previewData.types.has(t)) add(gcodeColorFor(t), t);
   }
 }
 
@@ -1528,6 +1572,7 @@ function hidePreview() {
 els.previewBtn.addEventListener('click', showPreview);
 els.previewClose.addEventListener('click', hidePreview);
 els.previewLayer.addEventListener('input', () => setPreviewLayer(+els.previewLayer.value));
+if (els.previewModeBtn) els.previewModeBtn.addEventListener('click', () => setPreviewMode(previewMode === 'tool' ? 'feature' : 'tool'));
 
 // Capture a 144x144 PNG for the printer icon by snapshotting the MAIN viewport
 // (a separate offscreen WebGL renderer rendered blank on mobile). Hides the bed,
