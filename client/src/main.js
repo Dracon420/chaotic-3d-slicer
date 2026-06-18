@@ -1781,6 +1781,7 @@ async function loadPresets() {
       const opt = document.createElement('option');
       opt.value = item.path;
       opt.textContent = item.name;
+      if (item.bed) opt.dataset.bed = JSON.stringify(item.bed);
       if (currentPath && item.path === currentPath) opt.selected = true;
       group.appendChild(opt);
     }
@@ -1788,6 +1789,8 @@ async function loadPresets() {
   fill(els.machineSel, data.presets.machine, data.current.machine);
   fill(els.processSel, data.presets.process, data.current.process);
   fill(els.filamentSel, data.presets.filament, data.current.filament);
+  applyBedFromSelectedPreset();
+  filterPresetsForPrinters();
 }
 
 // Select the first option whose (lower-cased) name contains any `includes`
@@ -1801,6 +1804,45 @@ function pickPreset(sel, includes, excludes = []) {
   return !!opt;
 }
 
+// Apply the bed dimensions stored in the selected machine preset's dataset to
+// the 3D viewport and position sliders. Called whenever the machine preset changes.
+function applyBedFromSelectedPreset() {
+  const opt = els.machineSel.selectedOptions[0];
+  if (!opt || !opt.dataset.bed) return;
+  try {
+    const bed = JSON.parse(opt.dataset.bed);
+    if (!(bed.x > 10 && bed.y > 10)) return;
+    state.bed = { x: bed.x, y: bed.y };
+    els.posX.max = bed.x;
+    els.posY.max = bed.y;
+    if (+els.posX.value > bed.x) { els.posX.value = bed.x / 2; setNum(els.posXOut, bed.x / 2); }
+    if (+els.posY.value > bed.y) { els.posY.value = bed.y / 2; setNum(els.posYOut, bed.y / 2); }
+    buildBed();
+    applyTransform();
+  } catch { /* ignore bad dataset */ }
+}
+
+// Hide system (Built-in) machine presets that don't match any added printer's
+// vendor, so the list stays manageable. User presets are always visible.
+function filterPresetsForPrinters() {
+  const protocols = new Set(state.printers.map((p) => p.protocol));
+  if (!protocols.size) return; // no printers yet — show everything
+  const kw = [];
+  if (protocols.has('sdcp'))      kw.push('centauri carbon');
+  if (protocols.has('mqtt'))      kw.push('centauri carbon 2', 'cc2');
+  if (protocols.has('bambu'))     kw.push('bambu', 'a1 mini', 'a1m', 'a1 ', 'p1', 'x1');
+  if (protocols.has('moonraker')) kw.push('ender', 'creality', 'voron', 'prusa', 'cr-');
+  for (const opt of els.machineSel.options) {
+    const inUserGroup = opt.parentElement?.label === 'My presets';
+    if (inUserGroup) { opt.hidden = false; continue; }
+    const name = opt.textContent.toLowerCase();
+    opt.hidden = !kw.some((k) => name.includes(k));
+  }
+  // Ensure the currently-selected option is never hidden.
+  const sel = els.machineSel.selectedOptions[0];
+  if (sel) sel.hidden = false;
+}
+
 // CRITICAL for the CC2 Canvas: the gcode must be sliced with the matching
 // MACHINE preset — only the CC2 preset's start gcode carries the `M6211` Canvas
 // load macro. Selecting the CC2 as the target printer must therefore switch the
@@ -1809,6 +1851,8 @@ function pickPreset(sel, includes, excludes = []) {
 function autoSelectPresetsForPrinter() {
   const opt = els.printerSel.selectedOptions[0];
   if (!opt) return;
+  let machineChanged = false;
+  const prevMachine = els.machineSel.value;
   if (opt.dataset.protocol === 'mqtt') {
     // Centauri Carbon 2 (Canvas)
     pickPreset(els.machineSel, ['carbon 2', 'cc2']);
@@ -1832,6 +1876,11 @@ function autoSelectPresetsForPrinter() {
     pickPreset(els.processSel, ['@elegoo cc', 'cc '], ['cc2']);
     pickPreset(els.filamentSel, ['ecc', '@ecc'], ['ecc2', 'cc2']);
   }
+  machineChanged = els.machineSel.value !== prevMachine;
+  if (machineChanged) applyBedFromSelectedPreset();
+  const m = els.machineSel.selectedOptions[0]?.textContent || '?';
+  const prs = els.processSel.selectedOptions[0]?.textContent || '?';
+  log(`Preset auto-selected: ${m} | ${prs}`);
 }
 
 // Load configured printers (with live online status) and render the UI.
@@ -1870,6 +1919,7 @@ function refreshPrinterUI() {
   els.printRow.hidden = state.printers.length === 0;
   els.printBtn.disabled = !state.lastGcode || state.printers.length === 0;
 
+  filterPresetsForPrinters();
   renderPrinterCards();
   loadFilament();
 }
@@ -1894,6 +1944,7 @@ function renderPrinterCards() {
       `<button class="printer-card__del" title="Remove this printer">🗑</button>`;
     card.addEventListener('click', () => {
       els.printerSel.value = p.host;
+      autoSelectPresetsForPrinter();
       refreshPrinterUI();
       log(`Selected printer: ${p.name}`);
     });
@@ -1914,13 +1965,13 @@ function renderPrinterCards() {
   }
 }
 
-// When a CC2 (mqtt) printer is selected, show its 4 Canvas filament slots.
+// When a CC2 (mqtt) or Bambu AMS printer is selected, show its filament slots.
 async function loadFilament() {
   const opt = els.printerSel.selectedOptions[0];
   state.selectedTray = null;
   state.selectedTrayInfo = null;
-  tintModelToColor(null); // revert preview tint when leaving / re-syncing CC2
-  if (!opt || opt.dataset.protocol !== 'mqtt') {
+  tintModelToColor(null); // revert preview tint when leaving / re-syncing
+  if (!opt || (opt.dataset.protocol !== 'mqtt' && opt.dataset.protocol !== 'bambu')) {
     els.filamentBar.hidden = true;
     return;
   }
@@ -1986,6 +2037,8 @@ function autoSelectFilament(tray) {
     log(`⚠ No filament preset matches tray #${tray.trayId + 1} (${tray.type}). Pick a matching one in Settings, or the Canvas may refuse to load.`, 'err');
   }
 }
+
+els.machineSel.addEventListener('change', applyBedFromSelectedPreset);
 
 els.printerSel.addEventListener('change', () => {
   autoSelectPresetsForPrinter();
@@ -2206,26 +2259,40 @@ els.profileDelete.addEventListener('click', async () => {
   }
 });
 
-// On-demand printer status (Printers page).
+// On-demand printer status (Printers page) — works for all printer types.
 els.statusBtn.addEventListener('click', async () => {
   const opt = els.printerSel.selectedOptions[0];
   if (!opt) { els.statusOut.textContent = 'Select a printer first (scan if needed).'; return; }
-  if (opt.dataset.protocol !== 'mqtt') { els.statusOut.textContent = 'Live status is only available for CC2 (MQTT) printers.'; return; }
   els.statusBtn.disabled = true;
   els.statusOut.textContent = 'Querying printer…';
   try {
-    const q = new URLSearchParams({ host: opt.value, protocol: 'mqtt', mainboardId: opt.dataset.mainboardId || '' });
+    const q = new URLSearchParams({ host: opt.value, protocol: opt.dataset.protocol, mainboardId: opt.dataset.mainboardId || '' });
     const res = await fetch(`/api/printer-status?${q}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'failed');
+    if (!data.supported) { els.statusOut.textContent = 'Status query not supported for this printer type.'; return; }
     const s = data.status || {};
     if (s.reachable === false) { els.statusOut.textContent = `Unreachable: ${s.error || 'is the printer awake?'}`; return; }
-    els.statusOut.textContent =
-      `nozzle ${s.nozzle?.temp ?? '?'} → ${s.nozzle?.target ?? '?'} °C\n` +
-      `bed ${s.bed?.temp ?? '?'} → ${s.bed?.target ?? '?'} °C\n` +
-      `filament at nozzle: ${s.filamentDetected ? 'YES' : 'NO'}\n` +
-      `active tray: ${s.activeTray ?? 'none'}\n` +
-      `print state: ${s.printStatus ?? '?'}${s.printError ? ' · error ' + s.printError : ''}`;
+
+    if (opt.dataset.protocol === 'mqtt') {
+      els.statusOut.textContent =
+        `nozzle ${s.nozzle?.temp ?? '?'} → ${s.nozzle?.target ?? '?'} °C\n` +
+        `bed ${s.bed?.temp ?? '?'} → ${s.bed?.target ?? '?'} °C\n` +
+        `filament at nozzle: ${s.filamentDetected ? 'YES' : 'NO'}\n` +
+        `active tray: ${s.activeTray ?? 'none'}\n` +
+        `print state: ${s.printStatus ?? '?'}${s.printError ? ' · error ' + s.printError : ''}`;
+    } else if (opt.dataset.protocol === 'moonraker') {
+      els.statusOut.textContent =
+        `Klipper ${s.klipperVersion || 'unknown version'}\n` +
+        `nozzle ${s.nozzle?.temp ?? '?'} → ${s.nozzle?.target ?? '?'} °C\n` +
+        `bed ${s.bed?.temp ?? '?'} → ${s.bed?.target ?? '?'} °C\n` +
+        `print state: ${s.printState ?? 'idle'}` +
+        (s.fileName ? `\nfile: ${s.fileName}` : '');
+    } else if (opt.dataset.protocol === 'bambu') {
+      els.statusOut.textContent = 'Bambu printer is online and reachable.';
+    } else {
+      els.statusOut.textContent = 'Printer is online and reachable.';
+    }
   } catch (err) {
     els.statusOut.textContent = `Error: ${err.message}`;
   } finally {
@@ -2428,7 +2495,10 @@ async function init() {
 
   // Load presets + printers, then align the slicing presets to the selected
   // printer (so a CC2 target slices with the CC2 machine preset / Canvas macro).
-  Promise.all([loadPresets(), loadPrinters()]).then(autoSelectPresetsForPrinter);
+  Promise.all([loadPresets(), loadPrinters()]).then(() => {
+    filterPresetsForPrinters();
+    autoSelectPresetsForPrinter();
+  });
   loadProfiles();
 }
 

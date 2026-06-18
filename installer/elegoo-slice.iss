@@ -12,7 +12,7 @@
 ; slicer is found, pointing the user to install one.
 
 #define MyAppName "Chaotic 3D Slicer"
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.3.1"
 #define MyAppPublisher "Chaotic 3D"
 #define MyAppExe "Chaotic 3D Slicer.exe"
 #define SrcDir "..\dist\win-unpacked"
@@ -32,6 +32,7 @@ OutputBaseFilename=Chaotic3DSlicer-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+CloseApplications=yes
 ; Per-user install — no admin prompt (matches a tray app that autostarts per user).
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -63,6 +64,23 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch {#MyAppName} now"; \
   Flags: nowait postinstall skipifsilent
 
 [Code]
+// Silently remove any previously installed version so files can be overwritten.
+procedure UninstallPreviousVersion();
+var UninstStr: String; Code: Integer;
+begin
+  if RegQueryStringValue(HKCU,
+      'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F2A6C10-3E7B-4D5A-9C21-ELEGOOSLICE01}_is1',
+      'UninstallString', UninstStr) then begin
+    Exec(RemoveQuotes(UninstStr), '/SILENT /NORESTART', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  UninstallPreviousVersion();
+  Result := True;
+end;
+
 function SlicerInstalled(): Boolean;
 var pf, pf86, local: String;
 begin

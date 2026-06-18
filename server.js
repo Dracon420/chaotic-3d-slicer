@@ -156,6 +156,29 @@ app.get('/api/config', (_req, res) => {
 // ─── API: list selectable presets ────────────────────────────
 // Scans the slicer's user presets + bundled Elegoo presets so the phone can
 // offer machine / process / filament dropdowns.
+
+// Parse the printable area from a machine preset JSON so the client can resize
+// the bed when the machine changes. OrcaSlicer format: printable_area is an
+// array of "XxY" strings (e.g. ["0x0","235x0","235x235","0x235"]).
+function parseBedFromPreset(file) {
+  try {
+    const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (Array.isArray(json.printable_area) && json.printable_area.length >= 3) {
+      const coords = json.printable_area.map((p) => {
+        if (typeof p === 'string') { const [x, y] = p.split('x').map(Number); return [x || 0, y || 0]; }
+        return Array.isArray(p) ? p.map(Number) : [0, 0];
+      });
+      const xs = coords.map((c) => c[0]);
+      const ys = coords.map((c) => c[1]);
+      const x = Math.max(...xs) - Math.min(...xs);
+      const y = Math.max(...ys) - Math.min(...ys);
+      const z = parseFloat(json.printable_height) || 250;
+      if (x > 10 && y > 10) return { x: Math.round(x), y: Math.round(y), z: Math.round(z) };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 function listPresetFiles(dir, recursive) {
   try {
     return fs
@@ -180,7 +203,8 @@ function collectPresets(type) {
       const key = `${source}:${name}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      items.push({ name, path: file, source });
+      const bed = type === 'machine' ? parseBedFromPreset(file) : null;
+      items.push({ name, path: file, source, ...(bed && { bed }) });
     }
   }
   items.sort((a, b) =>
@@ -614,6 +638,18 @@ function resolvePrinter(body) {
 app.get('/api/printer-filament', async (req, res) => {
   const p = resolvePrinter({ host: req.query.host, protocol: req.query.protocol, mainboardId: req.query.mainboardId });
   if (!p) return res.status(404).json({ error: 'Unknown printer' });
+
+  if (p.protocol === 'bambu') {
+    if (!p.serial || !p.accessCode) return res.json({ supported: false, trays: [] });
+    try {
+      const trays = await bambu.getAmsFilaments({ host: p.host, serial: p.serial, accessCode: p.accessCode });
+      res.json({ supported: true, trays });
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+    return;
+  }
+
   if (p.protocol !== 'mqtt') return res.json({ supported: false, trays: [] });
   await ensureMainboardId(p);
   if (!p.mainboardId) return res.status(502).json({ error: `Couldn't reach the CC2 at ${p.host} to read its ID — make sure it's powered on and on this Wi‑Fi, then try again.` });
@@ -629,6 +665,48 @@ app.get('/api/printer-filament', async (req, res) => {
 app.get('/api/printer-status', async (req, res) => {
   const p = resolvePrinter({ host: req.query.host, protocol: req.query.protocol, mainboardId: req.query.mainboardId });
   if (!p) return res.status(404).json({ error: 'Unknown printer' });
+
+  if (p.protocol === 'moonraker') {
+    const port = p.port || 7125;
+    const headers = p.apiKey ? { 'X-Api-Key': p.apiKey } : {};
+    try {
+      const [infoRes, objRes] = await Promise.all([
+        fetch(`http://${p.host}:${port}/printer/info`, { headers }),
+        fetch(`http://${p.host}:${port}/printer/objects/query?print_stats&extruder&heater_bed`, { headers }),
+      ]);
+      const info = infoRes.ok ? (await infoRes.json()).result : null;
+      const objs = objRes.ok ? (await objRes.json()).result?.status : null;
+      const ps = objs?.print_stats || {};
+      const ex = objs?.extruder || {};
+      const bed = objs?.heater_bed || {};
+      return res.json({ supported: true, status: {
+        reachable: true,
+        klipperVersion: info?.software_version,
+        printState: ps.state || 'idle',
+        fileName: ps.filename || null,
+        nozzle: { temp: ex.temperature != null ? ex.temperature.toFixed(1) : null, target: ex.target },
+        bed: { temp: bed.temperature != null ? bed.temperature.toFixed(1) : null, target: bed.target },
+      }});
+    } catch (err) {
+      return res.json({ supported: true, status: { reachable: false, error: err.message } });
+    }
+  }
+
+  if (p.protocol === 'sdcp') {
+    try {
+      await printer.testConnection({ host: p.host, mainboardId: p.mainboardId || '', onLog: () => {} });
+      return res.json({ supported: true, status: { reachable: true } });
+    } catch (err) {
+      return res.json({ supported: true, status: { reachable: false, error: err.message } });
+    }
+  }
+
+  if (p.protocol === 'bambu') {
+    // For Bambu, reachability is enough (full state needs AMS read which is in printer-filament).
+    const reachable = await bambu.online(p.host);
+    return res.json({ supported: true, status: { reachable } });
+  }
+
   if (p.protocol !== 'mqtt') return res.json({ supported: false });
   await ensureMainboardId(p);
   if (!p.mainboardId) return res.status(502).json({ error: `Couldn't reach the CC2 at ${p.host} — make sure it's powered on and on this Wi‑Fi.` });
