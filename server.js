@@ -435,6 +435,22 @@ app.post('/api/slice', async (req, res) => {
       }
     }
 
+    // 2c) Painted (multi-colour) sanity check: every tray that was painted must
+    //     show up as its own tool change (T<tray>) in the gcode. If a painted
+    //     slot produced NO tool change, the slicer dropped the colour and the
+    //     print will come out single-colour — surface that loudly (it's the
+    //     exact "printed all black" failure, caught at slice time).
+    if (canvas && hasPaint) {
+      const g = fs.readFileSync(gcodePath, 'utf8');
+      const usedTrays = [...new Set(paintMap.filter((v) => v > 0))].sort();
+      const missing = usedTrays.filter((t) => !new RegExp(`^T${t}(\\b|\\s|$)`, 'm').test(g));
+      if (missing.length) {
+        log('stderr', `⚠ MULTI-COLOUR LOST: you painted slot(s) ${missing.map((t) => '#' + (t + 1)).join(', ')}, but the sliced gcode has no tool change for them — it will print single-colour. (The slice, not the printer, dropped the colour.)`);
+      } else {
+        log('stdout', `Multi-colour OK: tool changes present for T0 + ${usedTrays.map((t) => 'T' + t).join(', ')}.`);
+      }
+    }
+
     // 3) Embed a printer thumbnail (rendered on the phone) so the job shows an icon.
     if (req.body.thumbnails && typeof req.body.thumbnails === 'object') {
       try {
